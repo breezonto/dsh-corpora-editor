@@ -9,9 +9,11 @@ self-contained browser half.
 ```
 browser (client.js)                      Host process
 ┌─────────────────────────────┐          ┌────────────────────────┐
-│ conversation.view "corpora" │          │ workspaceFiles Remote  │ (read-only)
-│   CorporaView (React)       │── read ─▶│ terminal Remote        │ (write)
-│   ├─ useActiveFile          │          └────────────────────────┘
+│ sidebar.panellist "corpora" │          │ workspaceFiles Remote  │ (read-only)
+│ main "corpora"              │          │ terminal Remote        │ (write)
+│   CorporaPage (React)       │── read ─▶│                        │
+│   ├─ useCurrentSession      │          └────────────────────────┘
+│   ├─ FileTree               │
 │   ├─ useFileText            │
 │   └─ saveFile               │
 └─────────────────────────────┘
@@ -21,47 +23,50 @@ browser (client.js)                      Host process
 
 1. **`FILE_TYPES` registry** — the extension point for renderers. Each entry:
    `{ id, label, match(name), render(text) }`. `detectFileType(name)` picks the
-   first matching entry; the UI dropdown lets the user override it.
-2. **`useActiveFile()`** — observes the file open in the right sidebar's
-   built-in Files tab. Reads `ctx.sidebarRight.active()`, parses the
-   `TabRecord.contentId` (`dsh-resource://file/…`) into a workspace-relative
-   path, and re-reads on `openTabs`/`mounted` subscriptions plus a 500 ms poll
-   (there is no observable for focus-only tab switches).
-3. **`useFileText(sessionId, path)`** — reads a file's bytes via
+   first matching entry; the UI shows the detected type as a label.
+2. **`useCurrentSession()`** — reads the on-screen Session via
+   `ctx.sidebarRight.mounted` (the panel is root-scoped, so it has no `sessionId`
+   prop of its own).
+3. **`FileTree(sessionId, selectedPath, onSelect)`** — the panel's right-bar
+   file tree. Lists the workspace via `workspaceFiles.list` (root `'.'`),
+   expands/collapses directories, and calls `onSelect(path)` when a file is
+   clicked.
+4. **`useFileText(sessionId, path)`** — reads a file's bytes via
    `remote.workspaceFiles.readBytes`, decodes UTF-8, and returns
    `{ status, text, absolutePath }`. `absolutePath` is the value used on save
    (robust against cwd differences).
-4. **`saveFile(sessionId, absolutePath, content)`** — writes via the terminal
+5. **`saveFile(sessionId, absolutePath, content)`** — writes via the terminal
    controller. Content is base64-encoded and chunked (PTY line limit), piped
    into `base64 -d > <path>`, and a trailing sentinel carries the exit status so
    failures are detected.
-5. **`CorporaView`** — the React component registered into
-   `conversation.view`. Owns editor state (`draft`, `savedText`, `mode`,
-   `typeId`, `saving`, `saveError`) and renders the header (title, mode toggle,
-   file-type dropdown, Save button) and the body (textarea or rendered preview).
+6. **`CorporaPage`** — the React component registered into the root-scoped
+   `main` slot (key `corpora`), addressed by the `sidebar.panellist` entry.
+   Owns editor state (`draft`, `savedText`, `mode`, `typeId`, `saving`,
+   `saveError`) and renders the header (title, mode toggle, file-type label,
+   Save button) and the body (textarea or rendered preview).
 
 ## Data flow
 
 ```
-Files tab: open a file
-   └─▶ sidebarRight.active().contentId  (dsh-resource://file/session/<id>/<path>)
-        └─▶ useActiveFile parses path + sessionId
-             └─▶ useFileText readBytes  →  { text, absolutePath }
-                  └─▶ CorporaView draft = text
-                       ├─ Edit:    <textarea> edits draft
-                       ├─ Preview: FILE_TYPES[typeId].render(draft)
-                       └─ Save:    saveFile(absolutePath, draft) via terminal
+FileTree: click a file (workspace-relative path)
+   └─▶ CorporaPage sets selectedPath
+        └─▶ useFileText readBytes  →  { text, absolutePath }
+             └─▶ CorporaPage draft = text
+                  ├─ Edit:    <textarea> edits draft
+                  ├─ Preview: FILE_TYPES[typeId].render(draft)
+                  └─ Save:    saveFile(absolutePath, draft) via terminal
 ```
 
 ## DSH APIs used
 
 | API | Use |
 |---|---|
-| `conversation.view` slot | Registers the Corpora view (id `corpora`, order 20). |
+| `sidebar.panellist` slot | Registers the left-sidebar panel icon (id `corpora`, order 5). |
+| `main` slot | Registers the panel page (key `corpora`). |
 | `ctx.remote.workspaceFiles.readBytes(sessionId, path, {}, signal)` | Read a file. |
-| `ctx.remote.workspaceFiles.list(sessionId, path, signal)` | Not used now (tree removed). |
+| `ctx.remote.workspaceFiles.list(sessionId, path, signal)` | List the workspace tree (root `'.'`). |
 | `ctx.remote.terminal.create/attach/close` | Save a file. |
-| `ctx.sidebarRight.active()` / `.openTabs` / `.mounted` | Observe the open file. |
+| `ctx.sidebarRight.mounted` | The on-screen session (for `list`/`readBytes`/save). |
 | `ctx.locale.register` / slot `locale` | Localized labels + `t`. |
 
 ## Service `inject`
@@ -73,7 +78,7 @@ inject: ['slots', 'locale', 'remote', 'remote.workspaceFiles', 'remote.terminal'
 ## Extension points
 
 - **New file type:** add a `FILE_TYPES` entry. No other code changes.
-- **New toolbar control:** edit the `ce-controls` block in `CorporaView`.
+- **New toolbar control:** edit the `ce-controls` block in `CorporaPage`.
 - **New mode:** add a value to `mode` state and a branch in the body render.
 - **Better save:** replace `saveFile`'s terminal backend (or add a proper write
   Remote if one becomes available) without touching the view.

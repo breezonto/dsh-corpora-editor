@@ -22,8 +22,9 @@ restart:
    `target: 'include:corpora-editor'`, `enabled: true`.
    (`application: applied` is the authoritative signal.)
 3. Verify registration live: `cordis_inspect` → `Slots.listSubTree`,
-   `{ root: 'conversation.view' }`. Expect an `active` occupant with
-   `id: 'corpora'`, `order: 20`.
+   `{ root: 'sidebar.panellist' }` (expect an `active` occupant with
+   `id: 'corpora'`, `order: 5`) and `{ root: 'main' }` (expect an `active`
+   `corpora` key).
 
 If the browser page has not picked up the change, hard-refresh it (client HMR
 only rebuilds while the dev watcher runs).

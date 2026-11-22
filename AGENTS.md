@@ -5,11 +5,11 @@
 
 ## What this is
 
-**Corpora Editor** is a DeepSeek Harness (DSH) plugin that adds a "Corpora"
-conversation view (a top-bar tab beside Chat and Trajectory) for editing and
-previewing text-encoded files. It edits the file currently open in the built-in
-right-sidebar **Files** tab, with Edit/Preview modes, a file-type dropdown, and
-save-to-disk.
+**Corpora Editor** is a DeepSeek Harness (DSH) plugin that adds a **Corpora**
+panel to the left sidebar (beside Plugins and Automation tasks) for editing and
+previewing text-encoded files. It has its own file tree in the panel's right
+bar (browse the workspace, then edit/preview a selected file), with Edit/Preview
+modes, a file-type label, and save-to-disk.
 
 ## Critical DSH constraints (do not re-learn these the hard way)
 
@@ -32,16 +32,19 @@ These facts cost a lot of investigation to establish and are easy to get wrong:
 5. **`conversation.view` renders only the active view** (one at a time). Its
    `openView` prop only exists while that view is mounted, so you cannot switch
    conversation views from outside this slot.
-6. **There is no observable for "which sidebar tab is focused".** File selection
-   is read via `ctx.sidebarRight.active()` (synchronous) plus `openTabs`/`mounted`
-   subscriptions, plus a short poll to catch focus-only switches.
+6. **No client API lists files in arbitrary folders.** `workspaceFiles.list` is
+   workspace-scoped (root `'.'`, rejects outside-workspace) and
+   `directoryPicker.list` lists directories only. The panel's file explorer
+   therefore lists directories via a **persistent terminal shell**
+   (`ls -1p --color=never`), which can browse any folder the OS user can read;
+   a short-lived terminal appears in the session's terminal list while it runs.
 7. **Remote calls never throw** on Host errors; they resolve to
    `{ ok: true, value } | { ok: false, error }`. Always check `result.ok`.
-8. **Guard nullable state in effects.** `sidebarRight.active()` transiently
-   returns a non-file tab (or `undefined`) while you switch files, so a value
-   read from it can become `null` while a previous file's read is still
-   `'ready'`. Guard `active != null` before dereferencing `active.name`/etc.,
-   and wrap the whole view in an error boundary so one error never blanks it.
+8. **Guard nullable state in effects.** File selection and the on-screen
+   session can be `null`/`undefined` transiently, so a value read from them can
+   become `null` while a previous read is still `'ready'`. Guard `!= null`
+   before dereferencing, and wrap the panel in an error boundary so one error
+   never blanks it.
 
 ## Where things live
 
@@ -62,10 +65,11 @@ These facts cost a lot of investigation to establish and are easy to get wrong:
 - **Add a file type (JSON/XML/CSV):** add one entry to `FILE_TYPES` in
   `client.js` (`{ id, label, match(name), render(text) }`). The editor shell,
   mode switch, and save logic need no changes.
-- **Add a toolbar action / mode:** edit `CorporaView`'s header (`ce-controls`)
+- **Add a toolbar action / mode:** edit `CorporaPage`'s header (`ce-controls`)
   and its state. Keep state as React `useState`/`useRef`; the module already
   holds `remote` and `sidebarRight` service references set in `apply`.
 - **After any `client.js`/`package.json` change:** `plugin_manager`
   `set_plugin` with `target: 'include:corpora-editor'`, `enabled: true` to
   recompose; verify with `cordis_inspect` `Slots.listSubTree`
-  `{ root: 'conversation.view' }` (expect an `active` `corpora` occupant).
+  `{ root: 'sidebar.panellist' }` (expect an `active` `corpora` occupant, order
+  5) and `{ root: 'main' }` (expect an `active` `corpora` key).

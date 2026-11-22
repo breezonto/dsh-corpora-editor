@@ -1,9 +1,9 @@
 # Corpora Editor
 
 A DeepSeek Harness (DSH) plugin that turns the chat session into a small,
-VSCode-style editor for **text-encoded files**. It adds a **Corpora** view
-beside Chat and Trajectory where you can edit a file and switch between an
-**Edit** mode and a **Preview** mode.
+VSCode-style editor for **text-encoded files**. It adds a **Corpora Editor**
+panel to the left sidebar (beside Plugins and Automation tasks) where you can
+edit a file and switch between an **Edit** mode and a **Preview** mode.
 
 ## Documentation
 
@@ -17,11 +17,11 @@ beside Chat and Trajectory where you can edit a file and switch between an
 
 - **Edit / Preview modes** — toggle between a plain text editor and a rendered
   preview.
-- **File-type dropdown** — select the Preview renderer: Markdown, JSON, CSV,
-  XML, and plain text, with syntax highlighting.
+- **File-type label** — shows the auto-detected Preview renderer: Markdown,
+  JSON, CSV, XML, or plain text, with syntax highlighting.
 - **Save to disk** — writes your edits back to the workspace file.
-- **No redundant file tree** — files are selected from the built-in right
-  sidebar **Files** tab; the Corpora view mirrors whatever file is open there.
+- **Built-in file tree** — a file tree in the panel's right bar browses the
+  workspace; pick a file to edit or preview it.
 
 ## Requirements
 
@@ -41,11 +41,10 @@ this directory (`install_bundle`).
 
 ## Usage
 
-1. Open the right sidebar and choose **Files**.
-2. Browse to a Markdown or text file and open it (a preview tab opens).
-3. Switch the conversation to the **Corpora** view — the same file is loaded.
-4. Use **Edit** to change the content, **Preview** to see it rendered, the
-   **file-type** dropdown to choose the renderer, and **Save** to write it back.
+1. Click **Corpora** in the left sidebar.
+2. In the panel's right bar, browse the file tree and pick a file.
+3. Use **Edit** to change the content, **Preview** to see it rendered, and
+   **Save** to write it back.
 
 ## Architecture
 

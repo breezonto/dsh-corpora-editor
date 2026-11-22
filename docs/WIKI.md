@@ -36,7 +36,7 @@ silently succeeding.
 | Symptom | Likely cause / fix |
 |---|---|
 | Corpora tab missing | Plugin not enabled, or the client half didn't reload. Re-enable the row and hard-refresh the page. |
-| "Could not read this file" | File is binary/large/unreadable, or the Files tab shows a non-file tab. Open a text file in Files. |
+| "Could not read this file" | File is binary/large/unreadable. Pick a text file from the tree. |
 | Save does nothing | Save is disabled until there are unsaved edits (`draft ≠ savedText`). |
 | Save error "save failed (exit status …)" | The path is unwritable or the directory is missing. Check the file location. |
 | Save error "save timed out" | The terminal didn't produce the completion sentinel in 30 s (unusual shell/startup). Retry. |

@@ -18,11 +18,11 @@ window.__ModuleLoader__.load({
     const h = React.createElement;
 
     const NS = 'corpora-editor';
-    const VIEW_ID = 'corpora';
+    const PANEL_ID = 'corpora';
 
     const CSS = [
       // ---- View shell ----
-      '.ce-view{display:flex;flex-direction:column;box-sizing:border-box;height:100%;min-height:0;}',
+      '.ce-view{display:flex;flex-direction:column;box-sizing:border-box;flex:1;min-height:0;background:var(--dsw-alias-bg-base);}',
       '.ce-empty{max-width:640px;margin:32px auto 0;text-align:center;font-size:13px;line-height:20px;color:var(--dsw-alias-label-tertiary);}',
       '.ce-status{max-width:640px;margin:32px auto 0;text-align:center;font-size:13px;line-height:20px;color:var(--dsw-alias-label-tertiary);}',
       '.ce-status-error{color:var(--dsw-alias-state-error-primary);}',
@@ -82,6 +82,21 @@ window.__ModuleLoader__.load({
       '.ce-table th{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-weight:600;position:sticky;top:0;}',
       '.ce-table tbody tr:nth-child(even){background:var(--dsw-alias-bg-layer-1);}',
       '.ce-table tbody tr:hover{background:var(--dsw-alias-interactive-bg-hover);}',
+      // ---- Editor + file-tree layout ----
+      '.ce-main{display:flex;flex:1;min-height:0;}',
+      '.ce-content{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0;}',
+      '.ce-sidebar{flex:none;width:250px;min-width:180px;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;border-left:1px solid var(--dsw-alias-border-l1);font-size:13px;line-height:20px;color:var(--dsw-alias-label-primary);}',
+      '.ce-tree-row{display:flex;align-items:center;gap:6px;box-sizing:border-box;width:100%;padding:2px 6px;border:none;border-radius:var(--dsw-radius-sm);background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;}',
+      '.ce-tree-row:hover{background:var(--dsw-alias-interactive-bg-hover);}',
+      '.ce-tree-selected{background:var(--dsw-alias-interactive-bg-hover);}',
+      '.ce-tree-caret{flex:none;width:12px;color:var(--dsw-alias-label-tertiary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;}',
+      '.ce-tree-note{padding:2px 6px;color:var(--dsw-alias-label-tertiary);}',
+      '.ce-fs{flex:1;display:flex;flex-direction:column;min-height:0;}',
+      '.ce-fs-toolbar{flex:none;display:flex;align-items:center;gap:4px;padding:4px 6px;border-bottom:1px solid var(--dsw-alias-border-l1);}',
+      '.ce-fs-btn{flex:none;width:24px;height:24px;padding:0;border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:13px;line-height:1;cursor:pointer;}',
+      '.ce-fs-btn:hover{background:var(--dsw-alias-interactive-bg-hover);}',
+      '.ce-fs-path{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary);}',
+      '.ce-fs-list{flex:1;min-height:0;overflow:auto;padding:4px 6px;}',
     ].join('\n');
 
     // ---- Small pure helpers ----
@@ -450,31 +465,181 @@ window.__ModuleLoader__.load({
     let remote = null;
     let sidebarRight = null;
 
-    // ---- Observe the file open in the built-in right-sidebar Files tab ----
-    function useActiveFile() {
-      const [active, setActive] = React.useState(null);
+    // ---- The on-screen Session (the Files tab's owning session) ----
+    function useCurrentSession() {
+      return React.useSyncExternalStore(
+        (listener) => (sidebarRight == null ? (() => {}) : sidebarRight.mounted.subscribe(listener)),
+        () => (sidebarRight == null ? undefined : sidebarRight.mounted.getSnapshot()),
+      );
+    }
+
+    // ---- Persistent terminal shell (directory listing via ls) ----
+    let shellSession = null;
+    let shellHandle = null;
+    let shellIterator = null;
+    let shellInfoId = null;
+    let shellSeq = 0;
+    let shellQueue = Promise.resolve();
+
+    function readOutput(iterator, marker, timeoutMs) {
+      return new Promise((resolve, reject) => {
+        let buffer = '';
+        let settled = false;
+        let timer;
+        const settle = (fn, value) => { if (settled) return; settled = true; clearTimeout(timer); fn(value); };
+        timer = setTimeout(() => { settle(reject, new Error('shell timed out')); }, timeoutMs);
+        (async () => {
+          try {
+            for (;;) {
+              const { value, done } = await iterator.next();
+              if (done) { settle(resolve, buffer); return; }
+              if (settled) return;
+              if (value != null && value.type === 'output' && typeof value.data === 'string') {
+                buffer += value.data;
+                if (buffer.indexOf(marker) >= 0) { settle(resolve, buffer); return; }
+              }
+            }
+          } catch (error) { settle(reject, error); }
+        })();
+      });
+    }
+
+    async function ensureShell(sessionId) {
+      if (shellIterator != null && shellSession === sessionId) return shellIterator;
+      await closeShell();
+      const created = await remote.terminal.create(sessionId, { id: 'ce-shell-' + genId(), cols: 120, rows: 30 }, undefined);
+      if (!created.ok) throw new Error((created.error && created.error.message) || 'could not start shell');
+      if (created.value.state !== 'running') throw new Error(created.value.error || 'shell failed to start');
+      shellSession = sessionId;
+      shellInfoId = created.value.id;
+      shellHandle = remote.terminal.attach(sessionId, created.value.id, undefined);
+      shellIterator = shellHandle[Symbol.asyncIterator](); // single consumer, created once
+      shellSeq = 0; // restart write sequence for this attachment
+      return shellIterator;
+    }
+
+    async function closeShell() {
+      if (shellHandle == null) return;
+      try { await remote.terminal.close(shellSession, shellInfoId); } catch { /* noop */ }
+      if (typeof shellHandle.dispose === 'function') { try { shellHandle.dispose(); } catch { /* noop */ } }
+      shellHandle = null; shellIterator = null; shellSession = null; shellInfoId = null;
+    }
+
+    function runShell(sessionId, command) {
+      const run = shellQueue.then(async () => {
+        const iterator = await ensureShell(sessionId);
+        // Start/end markers are split across two printfs so the shell's input
+        // echo (if any) never contains the full marker contiguously.
+        const s = 'S' + Math.random().toString(36).slice(2);
+        const e = 'E' + Math.random().toString(36).slice(2);
+        const hs = Math.ceil(s.length / 2);
+        const he = Math.ceil(e.length / 2);
+        const full = 'printf "' + s.slice(0, hs) + '" ; printf "' + s.slice(hs) + '" ; '
+          + command + ' ; printf "' + e.slice(0, he) + '" ; printf "' + e.slice(he) + '"\n';
+        shellHandle.send({ type: 'write', sequence: ++shellSeq, data: full });
+        const output = await readOutput(iterator, e, 15000);
+        const si = output.indexOf(s);
+        const ei = output.indexOf(e, si >= 0 ? si : 0);
+        if (si < 0 || ei < 0) return '';
+        return output.slice(si + s.length, ei);
+      });
+      shellQueue = run.catch(() => {});
+      return run;
+    }
+
+    function joinAbs(dir, name) {
+      return dir.endsWith('/') ? dir + name : dir + '/' + name;
+    }
+    function parentDir(path) {
+      const trimmed = String(path).replace(/\/+$/, '');
+      const idx = trimmed.lastIndexOf('/');
+      return idx <= 0 ? '/' : trimmed.slice(0, idx);
+    }
+
+    // ---- File explorer (right bar of the Corpora panel) ----
+    function FileTree(props) {
+      const { sessionId, t, selectedPath, onSelect } = props;
+      const [cwd, setCwd] = React.useState(null);
+      const [homePath, setHomePath] = React.useState(null);
+      const [entries, setEntries] = React.useState({ status: 'loading', dirs: [], files: [] });
+      const mounted = React.useRef(true);
+
       React.useEffect(() => {
-        if (sidebarRight == null) { setActive(null); return undefined; }
-        const read = () => {
-          const tab = sidebarRight.active();
-          const parsed = tab == null ? null : parseFileAddress(tab.contentId);
-          const path = parsed == null ? null : parsed.path;
-          const addrSession = parsed != null && parsed.scope === 'session' ? parsed.sessionId : null;
-          const next = path == null ? null : { path, name: basename(path), sessionId: addrSession };
-          setActive((prev) => (prev != null && next != null && prev.path === next.path ? prev : next));
-        };
-        read();
-        const unsubTabs = sidebarRight.openTabs == null ? undefined : sidebarRight.openTabs.subscribe(read);
-        const unsubMounted = sidebarRight.mounted == null ? undefined : sidebarRight.mounted.subscribe(read);
-        // Re-read on a short cadence to catch focus-only tab switches (no public observable covers those).
-        const timer = setInterval(read, 500);
+        mounted.current = true;
+        (async () => {
+          if (sessionId == null || remote == null) return;
+          try {
+            const home = (await runShell(sessionId, 'echo "$HOME"')).trim();
+            if (!mounted.current) return;
+            setHomePath(home || '/');
+            setCwd(home || '/');
+          } catch (error) {
+            if (mounted.current) setEntries({ status: 'error', dirs: [], files: [], message: (error && error.message) || String(error) });
+          }
+        })();
         return () => {
-          if (unsubTabs != null) unsubTabs();
-          if (unsubMounted != null) unsubMounted();
-          clearInterval(timer);
+          mounted.current = false;
+          void closeShell();
         };
-      }, []);
-      return active;
+      }, [sessionId]);
+
+      React.useEffect(() => {
+        if (cwd == null || sessionId == null || remote == null) return;
+        let cancelled = false;
+        setEntries({ status: 'loading', dirs: [], files: [] });
+        runShell(sessionId, 'ls -1p --color=never -- ' + shellQuote(cwd))
+          .then((out) => {
+            if (cancelled) return;
+            const dirs = [];
+            const files = [];
+            for (const raw of out.split('\n')) {
+              const line = raw.trim();
+              if (line === '' || line === '.' || line === '..') continue;
+              if (line.endsWith('/')) {
+                const name = line.slice(0, -1);
+                if (name !== '') dirs.push({ name, path: joinAbs(cwd, name) });
+              } else {
+                files.push({ name: line, path: joinAbs(cwd, line) });
+              }
+            }
+            dirs.sort((a, b) => a.name.localeCompare(b.name));
+            files.sort((a, b) => a.name.localeCompare(b.name));
+            setEntries({ status: 'ready', dirs, files });
+          })
+          .catch((error) => { if (!cancelled) setEntries({ status: 'error', dirs: [], files: [], message: (error && error.message) || String(error) }); });
+        return () => { cancelled = true; };
+      }, [cwd, sessionId]);
+
+      const goUp = () => { if (cwd != null) setCwd(parentDir(cwd)); };
+      const goHome = () => { if (homePath != null) setCwd(homePath); };
+
+      return h('div', { className: 'ce-fs' },
+        h('div', { className: 'ce-fs-toolbar' },
+          h('button', { type: 'button', className: 'ce-fs-btn', onClick: goUp, title: 'Up', 'aria-label': 'Up' }, '↑'),
+          h('button', { type: 'button', className: 'ce-fs-btn', onClick: goHome, title: 'Home', 'aria-label': 'Home' }, '⌂'),
+          h('span', { className: 'ce-fs-path', title: cwd ?? '' }, cwd ?? '')),
+        h('div', { className: 'ce-fs-list' },
+          entries.status === 'loading'
+            ? h('div', { className: 'ce-tree-note' }, '…')
+            : entries.status === 'error'
+              ? h('div', { className: 'ce-tree-note' }, t('view.dirError') + (entries.message != null ? ': ' + entries.message : ''))
+              : h('div', null,
+                  entries.dirs.map((d) => h('button', {
+                    type: 'button', key: d.path, className: 'ce-tree-row',
+                    onClick: () => { setCwd(d.path); },
+                  },
+                  h('span', { className: 'ce-tree-caret', 'aria-hidden': true }, '▸'),
+                  h('span', null, d.name))),
+                  entries.files.map((f) => h('button', {
+                    type: 'button', key: f.path,
+                    className: 'ce-tree-row' + (selectedPath === f.path ? ' ce-tree-selected' : ''),
+                    onClick: () => { onSelect(f.path); },
+                  },
+                  h('span', { className: 'ce-tree-caret', 'aria-hidden': true }, ' '),
+                  h('span', null, f.name))),
+                  entries.dirs.length === 0 && entries.files.length === 0
+                    ? h('div', { className: 'ce-tree-note' }, t('view.emptyDir'))
+                    : null)));
     }
 
     // ---- Read one text file; returns { status, text, absolutePath } ----
@@ -576,12 +741,25 @@ window.__ModuleLoader__.load({
       }
     }
 
-    // ---- The Corpora editor view ----
-    function CorporaView(props) {
-      const { sessionId, t } = props;
-      const active = useActiveFile();
-      const readSessionId = active != null && active.sessionId != null ? active.sessionId : sessionId;
-      const fileText = useFileText(readSessionId, active == null ? null : active.path);
+    // ---- Sidebar panel icon ----
+    function CorporaPanelIcon({ size }) {
+      return h('svg', { width: size, height: size, viewBox: '0 0 36 36', 'aria-hidden': true },
+        h('path', { d: 'M9 5 h11 l7 7 v19 a2 2 0 0 1 -2 2 H9 a2 2 0 0 1 -2 -2 V7 a2 2 0 0 1 2 -2 z', fill: 'none', stroke: 'currentColor', strokeWidth: 2.4, strokeLinejoin: 'round' }),
+        h('path', { d: 'M20 5 v7 h7', fill: 'none', stroke: 'currentColor', strokeWidth: 2.4, strokeLinejoin: 'round' }),
+        h('path', { d: 'M11.5 19 h9 M11.5 23 h6', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' }),
+      );
+    }
+
+    // ---- The Corpora editor panel ----
+    function CorporaPage(props) {
+      const { t, useSessions } = props;
+      const mountedSession = useCurrentSession();
+      const fallbackSession = typeof useSessions === 'function'
+        ? useSessions((s) => (s != null && s.ids != null && s.ids.length > 0 ? s.ids[0] : undefined))
+        : undefined;
+      const sessionId = mountedSession ?? fallbackSession;
+      const [selectedPath, setSelectedPath] = React.useState(null);
+      const fileText = useFileText(sessionId, selectedPath);
       const [draft, setDraft] = React.useState(null);
       const [savedText, setSavedText] = React.useState(null);
       const [mode, setMode] = React.useState('preview');
@@ -590,18 +768,20 @@ window.__ModuleLoader__.load({
       const [saveError, setSaveError] = React.useState(null);
       const fileKeyRef = React.useRef(null);
 
+      const selectedName = selectedPath == null ? null : basename(selectedPath);
+
       React.useEffect(() => {
         fileKeyRef.current = fileText.status === 'ready' ? fileText.absolutePath : null;
-        if (active != null && fileText.status === 'ready') {
+        if (selectedPath != null && fileText.status === 'ready') {
           setDraft(fileText.text);
           setSavedText(fileText.text);
-          setTypeId(detectFileType(active.name).id);
+          setTypeId(detectFileType(selectedName).id);
         } else {
           setDraft(null);
           setSavedText(null);
         }
         setSaveError(null);
-      }, [fileText.status, fileText.text, fileText.absolutePath, active == null ? null : active.name]);
+      }, [fileText.status, fileText.text, fileText.absolutePath, selectedPath]);
 
       const dirty = draft !== null && draft !== savedText;
 
@@ -611,7 +791,7 @@ window.__ModuleLoader__.load({
         const content = draft;
         setSaving(true);
         setSaveError(null);
-        saveFile(readSessionId, targetPath, content)
+        saveFile(sessionId, targetPath, content)
           .then(() => { if (fileKeyRef.current === targetPath) setSavedText(content); })
           .catch((error) => { if (fileKeyRef.current === targetPath) setSaveError((error && error.message) || String(error)); })
           .finally(() => { setSaving(false); });
@@ -620,7 +800,7 @@ window.__ModuleLoader__.load({
       const fileType = fileTypeFor(typeId);
 
       let body;
-      if (active == null) {
+      if (selectedPath == null) {
         body = h('div', { className: 'ce-empty' }, t('view.empty'));
       } else if (fileText.status === 'loading') {
         body = h('div', { className: 'ce-status' }, t('view.loading'));
@@ -645,7 +825,7 @@ window.__ModuleLoader__.load({
       return h('div', { className: 'ce-view', 'data-corpora-editor': '' },
         h('style', null, CSS),
         h('div', { className: 'ce-header' },
-          h('div', { className: 'ce-title' }, active == null ? t('view.title') : active.name),
+          h('div', { className: 'ce-title' }, selectedName == null ? t('view.title') : selectedName),
           h('div', { className: 'ce-controls' },
             h('div', { className: 'ce-mode-toggle', role: 'tablist' },
               h('button', { type: 'button', role: 'tab', 'aria-selected': mode === 'edit', className: 'ce-mode-btn' + (mode === 'edit' ? ' ce-mode-active' : ''), onClick: () => { setMode('edit'); } }, t('mode.edit')),
@@ -653,7 +833,10 @@ window.__ModuleLoader__.load({
             h('span', { className: 'ce-type-label', title: fileType.label }, fileType.label),
             h('button', { type: 'button', className: 'ce-save', disabled: !dirty || saving, onClick: onSave }, saving ? t('save.saving') : t('save.label')))),
         saveError == null ? null : h('div', { className: 'ce-save-error' }, saveError),
-        body);
+        h('div', { className: 'ce-main' },
+          h('div', { className: 'ce-content' }, body),
+          h('div', { className: 'ce-sidebar' },
+            h(FileTree, { sessionId, t, selectedPath, onSelect: setSelectedPath }))));
     }
 
     // Error boundary: a render/effect error must not blank the whole view.
@@ -674,7 +857,7 @@ window.__ModuleLoader__.load({
             h('style', null, CSS),
             h('div', { className: 'ce-status ce-status-error' }, 'Corpora Editor error: ' + message));
         }
-        return h(CorporaView, this.props);
+        return h(CorporaPage, this.props);
       }
     }
 
@@ -688,10 +871,13 @@ window.__ModuleLoader__.load({
         ctx.effect(() => ctx.locale.register(NS, {
           en: {
             'view.label': 'Corpora',
-            'view.title': 'Corpora Editor',
-            'view.empty': 'Open a text file in the Files tab to edit it here.',
+            'view.title': 'Corpora',
+            'view.empty': 'Select a file in the tree on the right.',
             'view.loading': 'Loading…',
             'view.error': 'Could not read this file.',
+            'view.dirError': 'Could not list this folder.',
+            'view.emptyDir': 'No files here.',
+            'view.truncated': 'Some entries are hidden.',
             'mode.edit': 'Edit',
             'mode.preview': 'Preview',
             'type.label': 'File type',
@@ -700,10 +886,13 @@ window.__ModuleLoader__.load({
           },
           es: {
             'view.label': 'Corpora',
-            'view.title': 'Editor de Corpora',
-            'view.empty': 'Abre un archivo de texto en la pestaña Archivos para editarlo aquí.',
+            'view.title': 'Corpora',
+            'view.empty': 'Selecciona un archivo en el árbol de la derecha.',
             'view.loading': 'Cargando…',
             'view.error': 'No se pudo leer este archivo.',
+            'view.dirError': 'No se pudo listar esta carpeta.',
+            'view.emptyDir': 'No hay archivos aquí.',
+            'view.truncated': 'Algunas entradas están ocultas.',
             'mode.edit': 'Editar',
             'mode.preview': 'Vista previa',
             'type.label': 'Tipo de archivo',
@@ -712,10 +901,13 @@ window.__ModuleLoader__.load({
           },
           zh: {
             'view.label': 'Corpora',
-            'view.title': 'Corpora 编辑器',
-            'view.empty': '在“文件”标签页中打开一个文本文件即可在此编辑。',
+            'view.title': 'Corpora',
+            'view.empty': '在右侧的文件树中选择一个文件。',
             'view.loading': '加载中…',
             'view.error': '无法读取此文件。',
+            'view.dirError': '无法列出此文件夹。',
+            'view.emptyDir': '此处没有文件。',
+            'view.truncated': '部分条目已隐藏。',
             'mode.edit': '编辑',
             'mode.preview': '预览',
             'type.label': '文件类型',
@@ -724,10 +916,13 @@ window.__ModuleLoader__.load({
           },
           ja: {
             'view.label': 'Corpora',
-            'view.title': 'Corpora エディター',
-            'view.empty': '「ファイル」タブでテキストファイルを開くと、ここで編集できます。',
+            'view.title': 'Corpora',
+            'view.empty': '右側のファイルツリーでファイルを選択してください。',
             'view.loading': '読み込み中…',
             'view.error': 'このファイルを読み込めませんでした。',
+            'view.dirError': 'このフォルダーを一覧表示できませんでした。',
+            'view.emptyDir': 'ここにファイルはありません。',
+            'view.truncated': '一部のエントリは非表示です。',
             'mode.edit': '編集',
             'mode.preview': 'プレビュー',
             'type.label': 'ファイルの種類',
@@ -736,10 +931,13 @@ window.__ModuleLoader__.load({
           },
           fr: {
             'view.label': 'Corpora',
-            'view.title': 'Éditeur Corpora',
-            'view.empty': "Ouvrez un fichier texte dans l'onglet Fichiers pour le modifier ici.",
+            'view.title': 'Corpora',
+            'view.empty': "Sélectionnez un fichier dans l'arborescence à droite.",
             'view.loading': 'Chargement…',
             'view.error': 'Impossible de lire ce fichier.',
+            'view.dirError': 'Impossible de lister ce dossier.',
+            'view.emptyDir': 'Aucun fichier ici.',
+            'view.truncated': 'Certaines entrées sont masquées.',
             'mode.edit': 'Modifier',
             'mode.preview': 'Aperçu',
             'type.label': 'Type de fichier',
@@ -748,10 +946,13 @@ window.__ModuleLoader__.load({
           },
           de: {
             'view.label': 'Corpora',
-            'view.title': 'Corpora-Editor',
-            'view.empty': 'Öffnen Sie im Dateien-Tab eine Textdatei, um sie hier zu bearbeiten.',
+            'view.title': 'Corpora',
+            'view.empty': 'Wählen Sie rechts im Dateibaum eine Datei aus.',
             'view.loading': 'Wird geladen…',
             'view.error': 'Diese Datei konnte nicht gelesen werden.',
+            'view.dirError': 'Dieser Ordner konnte nicht aufgelistet werden.',
+            'view.emptyDir': 'Keine Dateien hier.',
+            'view.truncated': 'Einige Einträge sind ausgeblendet.',
             'mode.edit': 'Bearbeiten',
             'mode.preview': 'Vorschau',
             'type.label': 'Dateityp',
@@ -760,10 +961,13 @@ window.__ModuleLoader__.load({
           },
           ru: {
             'view.label': 'Corpora',
-            'view.title': 'Редактор Corpora',
-            'view.empty': 'Откройте текстовый файл на вкладке «Файлы», чтобы редактировать его здесь.',
+            'view.title': 'Corpora',
+            'view.empty': 'Выберите файл в дереве справа.',
             'view.loading': 'Загрузка…',
             'view.error': 'Не удалось прочитать этот файл.',
+            'view.dirError': 'Не удалось показать содержимое этой папки.',
+            'view.emptyDir': 'Здесь нет файлов.',
+            'view.truncated': 'Некоторые записи скрыты.',
             'mode.edit': 'Правка',
             'mode.preview': 'Предпросмотр',
             'type.label': 'Тип файла',
@@ -772,10 +976,13 @@ window.__ModuleLoader__.load({
           },
           pt: {
             'view.label': 'Corpora',
-            'view.title': 'Editor Corpora',
-            'view.empty': 'Abra um arquivo de texto na aba Arquivos para editá-lo aqui.',
+            'view.title': 'Corpora',
+            'view.empty': 'Selecione um arquivo na árvore à direita.',
             'view.loading': 'Carregando…',
             'view.error': 'Não foi possível ler este arquivo.',
+            'view.dirError': 'Não foi possível listar esta pasta.',
+            'view.emptyDir': 'Nenhum arquivo aqui.',
+            'view.truncated': 'Algumas entradas estão ocultas.',
             'mode.edit': 'Editar',
             'mode.preview': 'Pré-visualizar',
             'type.label': 'Tipo de arquivo',
@@ -784,8 +991,12 @@ window.__ModuleLoader__.load({
           },
         }), 'corpora-editor: dictionaries');
 
-        ctx.slots.inject('conversation.view', () => ctx.slots.register({
-          name: 'conversation.view', id: VIEW_ID, order: 20, label: () => t('view.label'), locale: NS,
+        ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
+          name: 'sidebar.panellist', id: PANEL_ID, order: 5, label: () => t('view.label'), locale: NS,
+        }, CorporaPanelIcon));
+
+        ctx.slots.inject('main', () => ctx.slots.register({
+          name: 'main', key: PANEL_ID, locale: NS,
         }, CorporaBoundary));
       },
     };
