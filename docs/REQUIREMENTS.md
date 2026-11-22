@@ -7,7 +7,7 @@
 | 1 | Renamed plugin to "Corpora Editor"; edits any text-encoded file. | ✅ |
 | 2 | Edit / Preview modes with a mode switch (VSCode-style editing). | ✅ |
 | 3 | Select files from the built-in right-sidebar **Files** tab (no redundant in-view tree). | ✅ |
-| 4 | Extensible file-type dropdown (Markdown + Plain text now; JSON/XML/CSV later). | ✅ |
+| 4 | Extensible file-type dropdown (Markdown, JSON, CSV, XML, plain text — all with syntax highlighting). | ✅ |
 | 5 | Save edits to disk. | ✅ (via terminal) |
 | 6 | `README.md` and `docs/` with architecture, dev guide, requirements, wiki. | ✅ |
 
@@ -39,10 +39,10 @@ These are not bugs — they are properties of the DSH extension model:
 
 ## Roadmap (not implemented)
 
-- JSON, XML, CSV renderers (the registry is ready).
+- More renderers (e.g. YAML, TOML, TSV) — the `FILE_TYPES` registry makes each a drop-in entry.
 - A true Markdown editor (the current Edit mode is a plain textarea; a live
   split preview is possible within the same view).
 - Replace the terminal-based save with a proper Host write Remote if one is
   added to DSH, or via a plugin-provided write service.
 - Unsaved-changes confirmation when switching files.
-- Syntax highlighting in Edit mode.
+- Syntax highlighting in Edit mode (Preview highlighting already exists).

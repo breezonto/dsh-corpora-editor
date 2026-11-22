@@ -37,6 +37,11 @@ These facts cost a lot of investigation to establish and are easy to get wrong:
    subscriptions, plus a short poll to catch focus-only switches.
 7. **Remote calls never throw** on Host errors; they resolve to
    `{ ok: true, value } | { ok: false, error }`. Always check `result.ok`.
+8. **Guard nullable state in effects.** `sidebarRight.active()` transiently
+   returns a non-file tab (or `undefined`) while you switch files, so a value
+   read from it can become `null` while a previous file's read is still
+   `'ready'`. Guard `active != null` before dereferencing `active.name`/etc.,
+   and wrap the whole view in an error boundary so one error never blanks it.
 
 ## Where things live
 

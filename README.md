@@ -17,8 +17,8 @@ beside Chat and Trajectory where you can edit a file and switch between an
 
 - **Edit / Preview modes** — toggle between a plain text editor and a rendered
   preview.
-- **File-type dropdown** — select the Preview renderer (Markdown and plain text
-  today; the architecture is ready for JSON, XML, CSV, and more).
+- **File-type dropdown** — select the Preview renderer: Markdown, JSON, CSV,
+  XML, and plain text, with syntax highlighting.
 - **Save to disk** — writes your edits back to the workspace file.
 - **No redundant file tree** — files are selected from the built-in right
   sidebar **Files** tab; the Corpora view mirrors whatever file is open there.

@@ -34,7 +34,7 @@ window.__ModuleLoader__.load({
       '.ce-mode-btn{border:none;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:20px;padding:2px 10px;cursor:pointer;}',
       '.ce-mode-btn:hover{background:var(--dsw-alias-interactive-bg-hover);}',
       '.ce-mode-active{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);}',
-      '.ce-type{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:20px;padding:2px 6px;}',
+      '.ce-type-label{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:20px;padding:2px 8px;white-space:nowrap;}',
       '.ce-save{border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:20px;padding:2px 12px;cursor:pointer;}',
       '.ce-save:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);}',
       '.ce-save:disabled{opacity:0.5;cursor:default;}',
@@ -65,6 +65,23 @@ window.__ModuleLoader__.load({
       '.ce-link:hover{text-decoration:underline;}',
       '.ce-img{max-width:100%;border-radius:var(--dsw-radius-sm);}',
       '.ce-plain{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;font-size:13px;line-height:20px;white-space:pre-wrap;word-break:break-word;}',
+      // ---- Syntax highlighting ----
+      '.ce-code-view{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;font-size:13px;line-height:20px;white-space:pre;overflow:auto;margin:0;}',
+      '.ce-syn-string{color:var(--dsw-alias-state-success-primary);}',
+      '.ce-syn-number{color:var(--dsw-alias-brand-primary);}',
+      '.ce-syn-keyword{color:var(--dsw-alias-state-warn-primary);}',
+      '.ce-syn-punct{color:var(--dsw-alias-label-tertiary);}',
+      '.ce-syn-tag{color:var(--dsw-alias-brand-primary);}',
+      '.ce-syn-attr{color:var(--dsw-alias-state-warn-primary);}',
+      '.ce-syn-comment{color:var(--dsw-alias-label-tertiary);font-style:italic;}',
+      '.ce-syn-error{color:var(--dsw-alias-state-error-primary);}',
+      // ---- CSV table ----
+      '.ce-table-wrap{overflow:auto;padding:4px 0;}',
+      '.ce-table{border-collapse:collapse;font-size:13px;line-height:20px;}',
+      '.ce-table th,.ce-table td{border:1px solid var(--dsw-alias-border-l1);padding:3px 10px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:320px;}',
+      '.ce-table th{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-weight:600;position:sticky;top:0;}',
+      '.ce-table tbody tr:nth-child(even){background:var(--dsw-alias-bg-layer-1);}',
+      '.ce-table tbody tr:hover{background:var(--dsw-alias-interactive-bg-hover);}',
     ].join('\n');
 
     // ---- Small pure helpers ----
@@ -288,13 +305,131 @@ window.__ModuleLoader__.load({
       return renderBlocks(text).map((block, idx) => renderBlock(block, idx));
     }
 
-    // ---- File-type registry (extensible; add JSON/XML/CSV here later) ----
+    // ---- Syntax-highlighting tokenizer ----
+    // Sticky regexes match exactly at the current offset, so alternations and
+    // zero-width lookaheads work without per-char string slicing.
+    function tokenize(source, rules) {
+      const out = [];
+      let i = 0;
+      let plain = '';
+      const flush = () => { if (plain !== '') { out.push(plain); plain = ''; } };
+      while (i < source.length) {
+        let matchedLen = -1;
+        let matchedClass = null;
+        for (const rule of rules) {
+          rule.re.lastIndex = i;
+          const m = rule.re.exec(source);
+          if (m !== null && m[0].length > 0) {
+            matchedLen = m[0].length;
+            matchedClass = rule.className;
+            break;
+          }
+        }
+        if (matchedLen > 0) {
+          flush();
+          out.push(h('span', { className: matchedClass }, source.slice(i, i + matchedLen)));
+          i += matchedLen;
+        } else {
+          plain += source[i];
+          i += 1;
+        }
+      }
+      flush();
+      return out;
+    }
+
+    const JSON_RULES = [
+      { re: /"(?:\\.|[^"\\])*"/y, className: 'ce-syn-string' },
+      { re: /-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/y, className: 'ce-syn-number' },
+      { re: /\b(?:true|false|null)\b/y, className: 'ce-syn-keyword' },
+      { re: /[{}\[\],:]/y, className: 'ce-syn-punct' },
+    ];
+
+    const XML_RULES = [
+      { re: /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>|<!DOCTYPE[\s\S]*?>/y, className: 'ce-syn-comment' },
+      { re: /<\/?[A-Za-z_][\w:.-]*|\/?>/y, className: 'ce-syn-tag' },
+      { re: /"[^"]*"/y, className: 'ce-syn-string' },
+      { re: /[\w:.-]+(?=\s*=)/y, className: 'ce-syn-attr' },
+    ];
+
+    function renderJSON(text) {
+      let parsed;
+      try { parsed = JSON.parse(text); }
+      catch { return h('div', { className: 'ce-syn-error' }, 'Invalid JSON'); }
+      return h('pre', { className: 'ce-code-view' }, tokenize(JSON.stringify(parsed, null, 2), JSON_RULES));
+    }
+
+    function renderXML(text) {
+      return h('pre', { className: 'ce-code-view' }, tokenize(text, XML_RULES));
+    }
+
+    function parseCSV(text) {
+      const rows = [];
+      let row = [];
+      let field = '';
+      let inQuotes = false;
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (inQuotes) {
+          if (ch === '"') {
+            if (text[i + 1] === '"') { field += '"'; i += 1; }
+            else inQuotes = false;
+          } else {
+            field += ch;
+          }
+        } else if (ch === '"') {
+          inQuotes = true;
+        } else if (ch === ',') {
+          row.push(field); field = '';
+        } else if (ch === '\n') {
+          row.push(field); rows.push(row); row = []; field = '';
+        } else if (ch !== '\r') {
+          field += ch;
+        }
+      }
+      if (field !== '' || row.length > 0) { row.push(field); rows.push(row); }
+      return rows.filter((r) => r.some((cell) => cell !== ''));
+    }
+
+    function renderCSV(text) {
+      const rows = parseCSV(text);
+      if (rows.length === 0) return h('div', { className: 'ce-status' }, 'Empty CSV');
+      const header = rows[0];
+      const body = rows.slice(1);
+      return h('div', { className: 'ce-table-wrap' },
+        h('table', { className: 'ce-table' },
+          h('thead', null,
+            h('tr', null, header.map((cell, j) => h('th', { key: j }, cell)))),
+          h('tbody', null,
+            body.map((row, i) => h('tr', { key: i },
+              row.map((cell, j) => h('td', { key: j }, cell)))))));
+    }
+
+    // ---- File-type registry (extensible; add more entries before the catch-all) ----
     const FILE_TYPES = [
       {
         id: 'markdown',
         label: 'Markdown',
         match: (name) => /\.(md|markdown|mdown|mkd)$/i.test(name),
         render: (text) => renderMarkdown(text),
+      },
+      {
+        id: 'json',
+        label: 'JSON',
+        match: (name) => /\.(json|jsonc|geojson)$/i.test(name),
+        render: (text) => renderJSON(text),
+      },
+      {
+        id: 'csv',
+        label: 'CSV',
+        match: (name) => /\.csv$/i.test(name),
+        render: (text) => renderCSV(text),
+      },
+      {
+        id: 'xml',
+        label: 'XML',
+        match: (name) => /\.(xml|svg|xsd|xsl|rss|atom)$/i.test(name),
+        render: (text) => renderXML(text),
       },
       {
         id: 'text',
@@ -457,7 +592,7 @@ window.__ModuleLoader__.load({
 
       React.useEffect(() => {
         fileKeyRef.current = fileText.status === 'ready' ? fileText.absolutePath : null;
-        if (fileText.status === 'ready') {
+        if (active != null && fileText.status === 'ready') {
           setDraft(fileText.text);
           setSavedText(fileText.text);
           setTypeId(detectFileType(active.name).id);
@@ -515,11 +650,32 @@ window.__ModuleLoader__.load({
             h('div', { className: 'ce-mode-toggle', role: 'tablist' },
               h('button', { type: 'button', role: 'tab', 'aria-selected': mode === 'edit', className: 'ce-mode-btn' + (mode === 'edit' ? ' ce-mode-active' : ''), onClick: () => { setMode('edit'); } }, t('mode.edit')),
               h('button', { type: 'button', role: 'tab', 'aria-selected': mode === 'preview', className: 'ce-mode-btn' + (mode === 'preview' ? ' ce-mode-active' : ''), onClick: () => { setMode('preview'); } }, t('mode.preview'))),
-            h('select', { className: 'ce-type', value: typeId, 'aria-label': t('type.label'), onChange: (event) => { setTypeId(event.target.value); } },
-              FILE_TYPES.map((ft) => h('option', { value: ft.id, key: ft.id }, ft.label))),
+            h('span', { className: 'ce-type-label', title: fileType.label }, fileType.label),
             h('button', { type: 'button', className: 'ce-save', disabled: !dirty || saving, onClick: onSave }, saving ? t('save.saving') : t('save.label')))),
         saveError == null ? null : h('div', { className: 'ce-save-error' }, saveError),
         body);
+    }
+
+    // Error boundary: a render/effect error must not blank the whole view.
+    class CorporaBoundary extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { error: null };
+      }
+      static getDerivedStateFromError(error) {
+        return { error };
+      }
+      render() {
+        if (this.state.error != null) {
+          const message = this.state.error && this.state.error.message
+            ? this.state.error.message
+            : String(this.state.error);
+          return h('div', { className: 'ce-view', 'data-corpora-editor': '' },
+            h('style', null, CSS),
+            h('div', { className: 'ce-status ce-status-error' }, 'Corpora Editor error: ' + message));
+        }
+        return h(CorporaView, this.props);
+      }
     }
 
     return {
@@ -630,7 +786,7 @@ window.__ModuleLoader__.load({
 
         ctx.slots.inject('conversation.view', () => ctx.slots.register({
           name: 'conversation.view', id: VIEW_ID, order: 20, label: () => t('view.label'), locale: NS,
-        }, CorporaView));
+        }, CorporaBoundary));
       },
     };
   },
