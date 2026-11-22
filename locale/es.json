@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Editor de Corpora",
+    "description": "Edita y previsualiza archivos de texto (Markdown, texto plano y, más adelante, JSON/XML/CSV) en una vista de conversación, con modos Editar/Vista previa y guardado en disco."
+  }
+}

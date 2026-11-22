@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Corpora 编辑器",
+    "description": "在会话视图中编辑和预览文本编码文件（Markdown、纯文本，后续支持 JSON/XML/CSV），支持编辑/预览模式切换并保存到磁盘。"
+  }
+}

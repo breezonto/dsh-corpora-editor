@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Corpora Editor",
+    "description": "Edit and preview text-encoded files (Markdown, plain text, and later JSON/XML/CSV) in a conversation view, with Edit/Preview modes and save-to-disk."
+  }
+}

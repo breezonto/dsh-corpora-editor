@@ -1,0 +1,637 @@
+/* Corpora Editor — edit and preview text-encoded files in the chat session.
+ *
+ * A "Corpora" conversation view (top bar) that edits the text file currently
+ * open in the right sidebar's built-in "Files" tab. Two modes — Edit and
+ * Preview — switch through a toggle, and a file-type dropdown selects the
+ * Preview renderer. File types are a small extensible registry so JSON, XML,
+ * CSV etc. can be added later without touching the editor shell.
+ *
+ * Reads go through the `workspaceFiles` Remote namespace; saves go through the
+ * terminal controller (the only client-accessible write path). Nothing here
+ * imports a Harness Client package as a module.
+ */
+
+window.__ModuleLoader__.load({
+  id: '@local/corpora-editor',
+  factory(require) {
+    const React = require('react');
+    const h = React.createElement;
+
+    const NS = 'corpora-editor';
+    const VIEW_ID = 'corpora';
+
+    const CSS = [
+      // ---- View shell ----
+      '.ce-view{display:flex;flex-direction:column;box-sizing:border-box;height:100%;min-height:0;}',
+      '.ce-empty{max-width:640px;margin:32px auto 0;text-align:center;font-size:13px;line-height:20px;color:var(--dsw-alias-label-tertiary);}',
+      '.ce-status{max-width:640px;margin:32px auto 0;text-align:center;font-size:13px;line-height:20px;color:var(--dsw-alias-label-tertiary);}',
+      '.ce-status-error{color:var(--dsw-alias-state-error-primary);}',
+      // ---- Header ----
+      '.ce-header{display:flex;align-items:center;gap:10px;flex:none;box-sizing:border-box;padding:8px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);}',
+      '.ce-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:20px;font-weight:500;color:var(--dsw-alias-label-primary);}',
+      '.ce-controls{display:flex;align-items:center;gap:8px;flex:none;}',
+      '.ce-mode-toggle{display:inline-flex;border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);overflow:hidden;}',
+      '.ce-mode-btn{border:none;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:20px;padding:2px 10px;cursor:pointer;}',
+      '.ce-mode-btn:hover{background:var(--dsw-alias-interactive-bg-hover);}',
+      '.ce-mode-active{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);}',
+      '.ce-type{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:20px;padding:2px 6px;}',
+      '.ce-save{border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:20px;padding:2px 12px;cursor:pointer;}',
+      '.ce-save:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);}',
+      '.ce-save:disabled{opacity:0.5;cursor:default;}',
+      '.ce-save-error{flex:none;box-sizing:border-box;padding:6px 12px;font-size:12px;line-height:16px;color:var(--dsw-alias-state-error-primary);border-bottom:1px solid var(--dsw-alias-border-l1);}',
+      // ---- Editor ----
+      '.ce-editor{flex:1;min-height:0;box-sizing:border-box;width:100%;padding:12px 16px;border:none;outline:none;resize:none;background:transparent;color:var(--dsw-alias-label-primary);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;font-size:13px;line-height:20px;}',
+      // ---- Preview ----
+      '.ce-preview{flex:1;min-height:0;box-sizing:border-box;overflow:auto;padding:16px 20px;}',
+      '.ce-doc{max-width:760px;font-size:14px;line-height:22px;color:var(--dsw-alias-label-primary);overflow-wrap:break-word;word-break:break-word;}',
+      '.ce-doc p{margin:0 0 12px;}',
+      '.ce-doc h1,.ce-doc h2,.ce-doc h3,.ce-doc h4,.ce-doc h5,.ce-doc h6{margin:20px 0 8px;font-weight:600;line-height:1.3;color:var(--dsw-alias-label-primary);}',
+      '.ce-doc h1:first-child,.ce-doc h2:first-child,.ce-doc h3:first-child,.ce-doc h4:first-child,.ce-doc h5:first-child,.ce-doc h6:first-child{margin-top:0;}',
+      '.ce-doc h1{font-size:24px;}',
+      '.ce-doc h2{font-size:20px;}',
+      '.ce-doc h3{font-size:17px;}',
+      '.ce-doc h4{font-size:15px;}',
+      '.ce-doc h5{font-size:14px;}',
+      '.ce-doc h6{font-size:13px;color:var(--dsw-alias-label-secondary);}',
+      '.ce-doc ul,.ce-doc ol{margin:0 0 12px;padding-left:22px;}',
+      '.ce-doc li{margin:3px 0;}',
+      '.ce-doc blockquote{margin:0 0 12px;padding:2px 0 2px 12px;border-left:3px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);}',
+      '.ce-doc hr{margin:16px 0;border:none;border-top:1px solid var(--dsw-alias-border-l1);}',
+      '.ce-doc strong{font-weight:600;}',
+      '.ce-code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;font-size:0.9em;background:var(--dsw-alias-bg-layer-2);border-radius:var(--dsw-radius-sm);padding:1px 4px;}',
+      '.ce-pre{margin:0 0 12px;padding:10px 12px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);overflow:auto;}',
+      '.ce-pre code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;font-size:12px;}',
+      '.ce-link{color:var(--dsw-alias-brand-primary);text-decoration:none;}',
+      '.ce-link:hover{text-decoration:underline;}',
+      '.ce-img{max-width:100%;border-radius:var(--dsw-radius-sm);}',
+      '.ce-plain{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;font-size:13px;line-height:20px;white-space:pre-wrap;word-break:break-word;}',
+    ].join('\n');
+
+    // ---- Small pure helpers ----
+    function shellQuote(value) {
+      return "'" + String(value).replace(/'/g, "'\\''") + "'";
+    }
+    function basename(path) {
+      const parts = String(path).split('/');
+      return parts[parts.length - 1] || path;
+    }
+    function genId() {
+      return 'ce-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+    }
+    function utf8Bytes(text) {
+      return new TextEncoder().encode(text);
+    }
+    function bytesToBase64(bytes) {
+      let binary = '';
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+      }
+      return btoa(binary);
+    }
+    /** Parse a `dsh-resource://file/…` address into a workspace-relative path. */
+    function parseFileAddress(address) {
+      if (typeof address !== 'string') return null;
+      const sessionPrefix = 'dsh-resource://file/session/';
+      if (address.startsWith(sessionPrefix)) {
+        const rest = address.slice(sessionPrefix.length);
+        const slash = rest.indexOf('/');
+        if (slash < 0) return null;
+        let path;
+        try { path = decodeURIComponent(rest.slice(slash + 1)); } catch { path = rest.slice(slash + 1); }
+        return { scope: 'session', sessionId: rest.slice(0, slash), path };
+      }
+      const absolutePrefix = 'dsh-resource://file/absolute/';
+      if (address.startsWith(absolutePrefix)) {
+        let path;
+        try { path = decodeURIComponent(address.slice(absolutePrefix.length)); } catch { path = address.slice(absolutePrefix.length); }
+        return { scope: 'absolute', path };
+      }
+      return null;
+    }
+
+    // ---- Markdown renderer (Preview renderer for the "Markdown" file type) ----
+    function safeUrl(url) {
+      if (/^(https?:|mailto:)/i.test(url)) return url;
+      if (url.startsWith('#')) return url;
+      if (url.startsWith('/') && !url.startsWith('//')) return url;
+      return null;
+    }
+
+    function renderInline(text) {
+      const nodes = [];
+      let i = 0;
+      while (i < text.length) {
+        const rest = text.slice(i);
+        let consumed = false;
+
+        const code = /^`([^`\n]+)`/.exec(rest);
+        if (code) {
+          nodes.push(h('code', { className: 'ce-code' }, code[1]));
+          i += code[0].length;
+          consumed = true;
+        }
+
+        if (!consumed) {
+          const image = /^!\[([^\]]*)\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/.exec(rest);
+          if (image) {
+            const url = safeUrl(image[2]);
+            if (url !== null) nodes.push(h('img', { className: 'ce-img', src: url, alt: image[1] || '' }));
+            else if (image[1] !== '') nodes.push(image[1]);
+            i += image[0].length;
+            consumed = true;
+          }
+        }
+
+        if (!consumed) {
+          const link = /^\[([^\]]+)\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/.exec(rest);
+          if (link) {
+            const url = safeUrl(link[2]);
+            if (url !== null) nodes.push(h('a', { className: 'ce-link', href: url, target: '_blank', rel: 'noopener noreferrer' }, ...renderInline(link[1])));
+            else nodes.push(...renderInline(link[1]));
+            i += link[0].length;
+            consumed = true;
+          }
+        }
+
+        if (!consumed) {
+          const bold = /^\*\*([^*]+)\*\*/.exec(rest);
+          if (bold) {
+            nodes.push(h('strong', null, ...renderInline(bold[1])));
+            i += bold[0].length;
+            consumed = true;
+          }
+        }
+
+        if (!consumed) {
+          const boldAlt = /^__([^_]+)__/.exec(rest);
+          if (boldAlt) {
+            nodes.push(h('strong', null, ...renderInline(boldAlt[1])));
+            i += boldAlt[0].length;
+            consumed = true;
+          }
+        }
+
+        if (!consumed) {
+          const strike = /^~~([^~]+)~~/.exec(rest);
+          if (strike) {
+            nodes.push(h('del', null, ...renderInline(strike[1])));
+            i += strike[0].length;
+            consumed = true;
+          }
+        }
+
+        if (!consumed) {
+          const italic = /^\*([^*]+)\*/.exec(rest);
+          if (italic) {
+            nodes.push(h('em', null, ...renderInline(italic[1])));
+            i += italic[0].length;
+            consumed = true;
+          }
+        }
+
+        if (!consumed) {
+          const italicAlt = /^_([^_]+)_/.exec(rest);
+          if (italicAlt) {
+            nodes.push(h('em', null, ...renderInline(italicAlt[1])));
+            i += italicAlt[0].length;
+            consumed = true;
+          }
+        }
+
+        if (!consumed) {
+          nodes.push(rest[0]);
+          i += 1;
+        }
+      }
+      return nodes;
+    }
+
+    function isBlockStart(line) {
+      if (/^\s{0,3}(#{1,6}\s|>|[-*+]\s|\d+[.)]\s|```|~~~)/.test(line)) return true;
+      return /^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(line);
+    }
+
+    function renderBlocks(src) {
+      const lines = src.replace(/\r\n?/g, '\n').split('\n');
+      const blocks = [];
+      let i = 0;
+      while (i < lines.length) {
+        const line = lines[i];
+        if (line.trim() === '') { i += 1; continue; }
+
+        const fence = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
+        if (fence) {
+          const marker = fence[1][0];
+          const len = fence[1].length;
+          const codeLines = [];
+          i += 1;
+          while (i < lines.length) {
+            if (new RegExp('^\\s{0,3}' + marker + '{' + len + ',}\\s*$').test(lines[i])) { i += 1; break; }
+            codeLines.push(lines[i]);
+            i += 1;
+          }
+          blocks.push({ type: 'code', text: codeLines.join('\n') });
+          continue;
+        }
+
+        const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+        if (heading) { blocks.push({ type: 'heading', level: heading[1].length, text: heading[2] }); i += 1; continue; }
+
+        if (/^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(line)) { blocks.push({ type: 'hr' }); i += 1; continue; }
+
+        if (/^\s{0,3}>/.test(line)) {
+          const quoteLines = [];
+          while (i < lines.length && /^\s{0,3}>/.test(lines[i])) { quoteLines.push(lines[i].replace(/^\s{0,3}>\s?/, '')); i += 1; }
+          blocks.push({ type: 'quote', text: quoteLines.join(' ') });
+          continue;
+        }
+
+        if (/^\s*[-*+]\s+/.test(line)) {
+          const items = [];
+          while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) { items.push(lines[i].replace(/^\s*[-*+]\s+/, '')); i += 1; }
+          blocks.push({ type: 'ul', items });
+          continue;
+        }
+
+        if (/^\s*\d+[.)]\s+/.test(line)) {
+          const items = [];
+          while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) { items.push(lines[i].replace(/^\s*\d+[.)]\s+/, '')); i += 1; }
+          blocks.push({ type: 'ol', items });
+          continue;
+        }
+
+        const paraLines = [];
+        while (i < lines.length && lines[i].trim() !== '' && !isBlockStart(lines[i])) { paraLines.push(lines[i]); i += 1; }
+        blocks.push({ type: 'p', text: paraLines.join(' ') });
+      }
+      return blocks;
+    }
+
+    function renderBlock(block, idx) {
+      switch (block.type) {
+        case 'p': return h('p', { key: idx }, ...renderInline(block.text));
+        case 'heading': {
+          const level = Math.min(6, Math.max(1, block.level));
+          return h('h' + level, { key: idx }, ...renderInline(block.text));
+        }
+        case 'code': return h('pre', { className: 'ce-pre', key: idx }, h('code', null, block.text));
+        case 'hr': return h('hr', { key: idx });
+        case 'quote': return h('blockquote', { key: idx }, ...renderInline(block.text));
+        case 'ul': return h('ul', { key: idx }, block.items.map((item, j) => h('li', { key: j }, ...renderInline(item))));
+        case 'ol': return h('ol', { key: idx }, block.items.map((item, j) => h('li', { key: j }, ...renderInline(item))));
+        default: return null;
+      }
+    }
+
+    function renderMarkdown(text) {
+      return renderBlocks(text).map((block, idx) => renderBlock(block, idx));
+    }
+
+    // ---- File-type registry (extensible; add JSON/XML/CSV here later) ----
+    const FILE_TYPES = [
+      {
+        id: 'markdown',
+        label: 'Markdown',
+        match: (name) => /\.(md|markdown|mdown|mkd)$/i.test(name),
+        render: (text) => renderMarkdown(text),
+      },
+      {
+        id: 'text',
+        label: 'Plain text',
+        match: () => true,
+        render: (text) => h('pre', { className: 'ce-plain' }, text),
+      },
+    ];
+
+    function fileTypeFor(id) {
+      return FILE_TYPES.find((ft) => ft.id === id) ?? FILE_TYPES[0];
+    }
+    function detectFileType(name) {
+      return FILE_TYPES.find((ft) => ft.match(name)) ?? FILE_TYPES[FILE_TYPES.length - 1];
+    }
+
+    // ---- Module-level services set in apply ----
+    let remote = null;
+    let sidebarRight = null;
+
+    // ---- Observe the file open in the built-in right-sidebar Files tab ----
+    function useActiveFile() {
+      const [active, setActive] = React.useState(null);
+      React.useEffect(() => {
+        if (sidebarRight == null) { setActive(null); return undefined; }
+        const read = () => {
+          const tab = sidebarRight.active();
+          const parsed = tab == null ? null : parseFileAddress(tab.contentId);
+          const path = parsed == null ? null : parsed.path;
+          const addrSession = parsed != null && parsed.scope === 'session' ? parsed.sessionId : null;
+          const next = path == null ? null : { path, name: basename(path), sessionId: addrSession };
+          setActive((prev) => (prev != null && next != null && prev.path === next.path ? prev : next));
+        };
+        read();
+        const unsubTabs = sidebarRight.openTabs == null ? undefined : sidebarRight.openTabs.subscribe(read);
+        const unsubMounted = sidebarRight.mounted == null ? undefined : sidebarRight.mounted.subscribe(read);
+        // Re-read on a short cadence to catch focus-only tab switches (no public observable covers those).
+        const timer = setInterval(read, 500);
+        return () => {
+          if (unsubTabs != null) unsubTabs();
+          if (unsubMounted != null) unsubMounted();
+          clearInterval(timer);
+        };
+      }, []);
+      return active;
+    }
+
+    // ---- Read one text file; returns { status, text, absolutePath } ----
+    function useFileText(sessionId, path) {
+      const [state, setState] = React.useState({ status: 'idle', text: '', absolutePath: null });
+      React.useEffect(() => {
+        if (path == null || remote == null) {
+          setState({ status: 'idle', text: '', absolutePath: null });
+          return undefined;
+        }
+        let cancelled = false;
+        const controller = new AbortController();
+        setState({ status: 'loading', text: '', absolutePath: null });
+        remote.workspaceFiles.readBytes(sessionId, path, {}, controller.signal)
+          .then((result) => {
+            if (cancelled) return;
+            if (!result.ok) { setState({ status: 'error', text: '', absolutePath: null }); return; }
+            let text = '';
+            try { text = new TextDecoder('utf-8', { fatal: false }).decode(result.value.data); }
+            catch { setState({ status: 'error', text: '', absolutePath: null }); return; }
+            setState({ status: 'ready', text, absolutePath: result.value.absolutePath });
+          })
+          .catch(() => { if (!cancelled) setState({ status: 'error', text: '', absolutePath: null }); });
+        return () => { cancelled = true; controller.abort(); };
+      }, [sessionId, path]);
+      return state;
+    }
+
+    // ---- Save via the terminal controller (client-accessible write) ----
+    /** Accumulate terminal output until `prefix` appears; resolve to the trailing exit code. */
+    function waitForStatus(handle, prefix, timeoutMs) {
+      return new Promise((resolve, reject) => {
+        const iterator = handle[Symbol.asyncIterator]();
+        let buffer = '';
+        let settled = false;
+        let timer;
+        const settle = (fn, value) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          fn(value);
+        };
+        timer = setTimeout(() => {
+          settle(reject, new Error('save timed out'));
+          try { iterator.return && iterator.return(); } catch { /* noop */ }
+        }, timeoutMs);
+        (async () => {
+          try {
+            for (;;) {
+              const { value, done } = await iterator.next();
+              if (done) { settle(resolve, ''); return; }
+              if (settled) return;
+              if (value != null && value.type === 'output' && typeof value.data === 'string') {
+                buffer += value.data;
+                const idx = buffer.indexOf(prefix);
+                if (idx >= 0) {
+                  const match = buffer.slice(idx + prefix.length).match(/^\d+/);
+                  settle(resolve, match == null ? '' : match[0]);
+                  return;
+                }
+              }
+            }
+          } catch (error) {
+            settle(reject, error);
+          }
+        })();
+      });
+    }
+
+    async function saveFile(sessionId, absolutePath, content) {
+      if (remote == null) throw new Error('remote unavailable');
+      const created = await remote.terminal.create(sessionId, { id: genId(), cols: 120, rows: 30 }, undefined);
+      if (!created.ok) throw new Error((created.error && created.error.message) || 'could not start terminal');
+      const info = created.value;
+      let handle;
+      try {
+        handle = remote.terminal.attach(sessionId, info.id, undefined);
+        const b64 = bytesToBase64(utf8Bytes(content));
+        // PTY canonical mode truncates a single input line near 4096 bytes, so
+        // chunk the base64 and join the chunks inside the shell; `base64 -d`
+        // ignores the embedded newlines. The sentinel carries the write's exit
+        // status so a failed write is reported, not silently accepted.
+        let command;
+        if (b64 === '') {
+          command = ': > ' + shellQuote(absolutePath) + '; printf "CE_SAVE_STATUS_%s" "$?"\n';
+        } else {
+          const chunks = [];
+          for (let i = 0; i < b64.length; i += 3800) chunks.push(b64.slice(i, i + 3800));
+          const emit = chunks.map((chunk) => "printf '%s\\n' " + shellQuote(chunk)).join('; ');
+          command = '{ ' + emit + '; } | base64 -d > ' + shellQuote(absolutePath)
+            + '; printf "CE_SAVE_STATUS_%s" "$?"\n';
+        }
+        handle.send({ type: 'write', sequence: 1, data: command });
+        const code = await waitForStatus(handle, 'CE_SAVE_STATUS_', 30000);
+        if (code !== '0') throw new Error('save failed (exit status ' + (code || 'unknown') + ')');
+      } finally {
+        try { await remote.terminal.close(sessionId, info.id); } catch { /* terminal already gone */ }
+        if (handle != null && typeof handle.dispose === 'function') { try { handle.dispose(); } catch { /* noop */ } }
+      }
+    }
+
+    // ---- The Corpora editor view ----
+    function CorporaView(props) {
+      const { sessionId, t } = props;
+      const active = useActiveFile();
+      const readSessionId = active != null && active.sessionId != null ? active.sessionId : sessionId;
+      const fileText = useFileText(readSessionId, active == null ? null : active.path);
+      const [draft, setDraft] = React.useState(null);
+      const [savedText, setSavedText] = React.useState(null);
+      const [mode, setMode] = React.useState('preview');
+      const [typeId, setTypeId] = React.useState('markdown');
+      const [saving, setSaving] = React.useState(false);
+      const [saveError, setSaveError] = React.useState(null);
+      const fileKeyRef = React.useRef(null);
+
+      React.useEffect(() => {
+        fileKeyRef.current = fileText.status === 'ready' ? fileText.absolutePath : null;
+        if (fileText.status === 'ready') {
+          setDraft(fileText.text);
+          setSavedText(fileText.text);
+          setTypeId(detectFileType(active.name).id);
+        } else {
+          setDraft(null);
+          setSavedText(null);
+        }
+        setSaveError(null);
+      }, [fileText.status, fileText.text, fileText.absolutePath, active == null ? null : active.name]);
+
+      const dirty = draft !== null && draft !== savedText;
+
+      const onSave = () => {
+        if (!dirty || saving) return;
+        const targetPath = fileText.absolutePath;
+        const content = draft;
+        setSaving(true);
+        setSaveError(null);
+        saveFile(readSessionId, targetPath, content)
+          .then(() => { if (fileKeyRef.current === targetPath) setSavedText(content); })
+          .catch((error) => { if (fileKeyRef.current === targetPath) setSaveError((error && error.message) || String(error)); })
+          .finally(() => { setSaving(false); });
+      };
+
+      const fileType = fileTypeFor(typeId);
+
+      let body;
+      if (active == null) {
+        body = h('div', { className: 'ce-empty' }, t('view.empty'));
+      } else if (fileText.status === 'loading') {
+        body = h('div', { className: 'ce-status' }, t('view.loading'));
+      } else if (fileText.status === 'error') {
+        body = h('div', { className: 'ce-status ce-status-error' }, t('view.error'));
+      } else if (mode === 'edit') {
+        body = h('textarea', {
+          className: 'ce-editor', value: draft ?? '', spellCheck: false,
+          onChange: (event) => { setDraft(event.target.value); },
+        });
+      } else {
+        let previewNodes;
+        try {
+          previewNodes = fileType.render(draft ?? '');
+        } catch (_error) {
+          previewNodes = h('div', { className: 'ce-status ce-status-error' }, t('view.error'));
+        }
+        body = h('div', { className: 'ce-preview' },
+          h('article', { className: 'ce-doc' }, previewNodes));
+      }
+
+      return h('div', { className: 'ce-view', 'data-corpora-editor': '' },
+        h('style', null, CSS),
+        h('div', { className: 'ce-header' },
+          h('div', { className: 'ce-title' }, active == null ? t('view.title') : active.name),
+          h('div', { className: 'ce-controls' },
+            h('div', { className: 'ce-mode-toggle', role: 'tablist' },
+              h('button', { type: 'button', role: 'tab', 'aria-selected': mode === 'edit', className: 'ce-mode-btn' + (mode === 'edit' ? ' ce-mode-active' : ''), onClick: () => { setMode('edit'); } }, t('mode.edit')),
+              h('button', { type: 'button', role: 'tab', 'aria-selected': mode === 'preview', className: 'ce-mode-btn' + (mode === 'preview' ? ' ce-mode-active' : ''), onClick: () => { setMode('preview'); } }, t('mode.preview'))),
+            h('select', { className: 'ce-type', value: typeId, 'aria-label': t('type.label'), onChange: (event) => { setTypeId(event.target.value); } },
+              FILE_TYPES.map((ft) => h('option', { value: ft.id, key: ft.id }, ft.label))),
+            h('button', { type: 'button', className: 'ce-save', disabled: !dirty || saving, onClick: onSave }, saving ? t('save.saving') : t('save.label')))),
+        saveError == null ? null : h('div', { className: 'ce-save-error' }, saveError),
+        body);
+    }
+
+    return {
+      inject: ['slots', 'locale', 'remote', 'remote.workspaceFiles', 'remote.terminal', 'sidebarRight'],
+      apply(ctx) {
+        remote = ctx.remote;
+        sidebarRight = ctx.sidebarRight;
+        const t = ctx.locale.bind(NS);
+
+        ctx.effect(() => ctx.locale.register(NS, {
+          en: {
+            'view.label': 'Corpora',
+            'view.title': 'Corpora Editor',
+            'view.empty': 'Open a text file in the Files tab to edit it here.',
+            'view.loading': 'Loading…',
+            'view.error': 'Could not read this file.',
+            'mode.edit': 'Edit',
+            'mode.preview': 'Preview',
+            'type.label': 'File type',
+            'save.label': 'Save',
+            'save.saving': 'Saving…',
+          },
+          es: {
+            'view.label': 'Corpora',
+            'view.title': 'Editor de Corpora',
+            'view.empty': 'Abre un archivo de texto en la pestaña Archivos para editarlo aquí.',
+            'view.loading': 'Cargando…',
+            'view.error': 'No se pudo leer este archivo.',
+            'mode.edit': 'Editar',
+            'mode.preview': 'Vista previa',
+            'type.label': 'Tipo de archivo',
+            'save.label': 'Guardar',
+            'save.saving': 'Guardando…',
+          },
+          zh: {
+            'view.label': 'Corpora',
+            'view.title': 'Corpora 编辑器',
+            'view.empty': '在“文件”标签页中打开一个文本文件即可在此编辑。',
+            'view.loading': '加载中…',
+            'view.error': '无法读取此文件。',
+            'mode.edit': '编辑',
+            'mode.preview': '预览',
+            'type.label': '文件类型',
+            'save.label': '保存',
+            'save.saving': '保存中…',
+          },
+          ja: {
+            'view.label': 'Corpora',
+            'view.title': 'Corpora エディター',
+            'view.empty': '「ファイル」タブでテキストファイルを開くと、ここで編集できます。',
+            'view.loading': '読み込み中…',
+            'view.error': 'このファイルを読み込めませんでした。',
+            'mode.edit': '編集',
+            'mode.preview': 'プレビュー',
+            'type.label': 'ファイルの種類',
+            'save.label': '保存',
+            'save.saving': '保存中…',
+          },
+          fr: {
+            'view.label': 'Corpora',
+            'view.title': 'Éditeur Corpora',
+            'view.empty': "Ouvrez un fichier texte dans l'onglet Fichiers pour le modifier ici.",
+            'view.loading': 'Chargement…',
+            'view.error': 'Impossible de lire ce fichier.',
+            'mode.edit': 'Modifier',
+            'mode.preview': 'Aperçu',
+            'type.label': 'Type de fichier',
+            'save.label': 'Enregistrer',
+            'save.saving': 'Enregistrement…',
+          },
+          de: {
+            'view.label': 'Corpora',
+            'view.title': 'Corpora-Editor',
+            'view.empty': 'Öffnen Sie im Dateien-Tab eine Textdatei, um sie hier zu bearbeiten.',
+            'view.loading': 'Wird geladen…',
+            'view.error': 'Diese Datei konnte nicht gelesen werden.',
+            'mode.edit': 'Bearbeiten',
+            'mode.preview': 'Vorschau',
+            'type.label': 'Dateityp',
+            'save.label': 'Speichern',
+            'save.saving': 'Wird gespeichert…',
+          },
+          ru: {
+            'view.label': 'Corpora',
+            'view.title': 'Редактор Corpora',
+            'view.empty': 'Откройте текстовый файл на вкладке «Файлы», чтобы редактировать его здесь.',
+            'view.loading': 'Загрузка…',
+            'view.error': 'Не удалось прочитать этот файл.',
+            'mode.edit': 'Правка',
+            'mode.preview': 'Предпросмотр',
+            'type.label': 'Тип файла',
+            'save.label': 'Сохранить',
+            'save.saving': 'Сохранение…',
+          },
+          pt: {
+            'view.label': 'Corpora',
+            'view.title': 'Editor Corpora',
+            'view.empty': 'Abra um arquivo de texto na aba Arquivos para editá-lo aqui.',
+            'view.loading': 'Carregando…',
+            'view.error': 'Não foi possível ler este arquivo.',
+            'mode.edit': 'Editar',
+            'mode.preview': 'Pré-visualizar',
+            'type.label': 'Tipo de arquivo',
+            'save.label': 'Salvar',
+            'save.saving': 'Salvando…',
+          },
+        }), 'corpora-editor: dictionaries');
+
+        ctx.slots.inject('conversation.view', () => ctx.slots.register({
+          name: 'conversation.view', id: VIEW_ID, order: 20, label: () => t('view.label'), locale: NS,
+        }, CorporaView));
+      },
+    };
+  },
+});

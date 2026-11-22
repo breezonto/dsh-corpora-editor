@@ -1,0 +1,3 @@
+- insert:
+    - id: corpora-editor
+      name: '@local/corpora-editor'
