@@ -10,7 +10,7 @@ edit a file and switch between an **Edit** mode and a **Preview** mode.
 - [`AGENTS.md`](AGENTS.md) — shared context for AI agents (read this first).
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — components, data flow, extension points.
 - [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) — install, debug loop, extension recipes.
-- [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md) — requirements, constraints, roadmap.
+- [`docs/requirements/REQ-0.md`](docs/requirements/REQ-0.md) — baseline requirements; add `REQ-N.md` files here to propose features.
 - [`docs/WIKI.md`](docs/WIKI.md) — FAQ, troubleshooting, glossary.
 
 ## Features

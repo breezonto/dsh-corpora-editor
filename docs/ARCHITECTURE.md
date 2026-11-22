@@ -9,11 +9,11 @@ self-contained browser half.
 ```
 browser (client.js)                      Host process
 ┌─────────────────────────────┐          ┌────────────────────────┐
-│ sidebar.panellist "corpora" │          │ workspaceFiles Remote  │ (read-only)
-│ main "corpora"              │          │ terminal Remote        │ (write)
-│   CorporaPage (React)       │── read ─▶│                        │
-│   ├─ useCurrentSession      │          └────────────────────────┘
-│   ├─ FileTree               │
+│ sidebar.panellist "corpora" │          │ workspaceFiles Remote   (read) │
+│ main "corpora"              │          │ terminal Remote  (list+write) │
+│   CorporaPage (React)       │── read ─▶│                               │
+│   ├─ useCurrentSession      │          └───────────────────────────────┘
+│   ├─ FileTree (shell ls)    │
 │   ├─ useFileText            │
 │   └─ saveFile               │
 └─────────────────────────────┘
@@ -25,12 +25,12 @@ browser (client.js)                      Host process
    `{ id, label, match(name), render(text) }`. `detectFileType(name)` picks the
    first matching entry; the UI shows the detected type as a label.
 2. **`useCurrentSession()`** — reads the on-screen Session via
-   `ctx.sidebarRight.mounted` (the panel is root-scoped, so it has no `sessionId`
-   prop of its own).
+   `ctx.sidebarRight.mounted`, with a `useSessions` fallback to the first listed
+   session (the panel is root-scoped, so it has no `sessionId` prop of its own).
 3. **`FileTree(sessionId, selectedPath, onSelect)`** — the panel's right-bar
-   file tree. Lists the workspace via `workspaceFiles.list` (root `'.'`),
-   expands/collapses directories, and calls `onSelect(path)` when a file is
-   clicked.
+   file explorer. Lists the current directory via a **persistent terminal shell**
+   (`ls -1p --color=never`) so it can browse any folder, with `↑`/`⌂`
+   navigation; clicking a file calls `onSelect(absolutePath)`.
 4. **`useFileText(sessionId, path)`** — reads a file's bytes via
    `remote.workspaceFiles.readBytes`, decodes UTF-8, and returns
    `{ status, text, absolutePath }`. `absolutePath` is the value used on save
@@ -48,7 +48,7 @@ browser (client.js)                      Host process
 ## Data flow
 
 ```
-FileTree: click a file (workspace-relative path)
+FileTree: click a file (absolute path)
    └─▶ CorporaPage sets selectedPath
         └─▶ useFileText readBytes  →  { text, absolutePath }
              └─▶ CorporaPage draft = text
@@ -63,10 +63,9 @@ FileTree: click a file (workspace-relative path)
 |---|---|
 | `sidebar.panellist` slot | Registers the left-sidebar panel icon (id `corpora`, order 5). |
 | `main` slot | Registers the panel page (key `corpora`). |
-| `ctx.remote.workspaceFiles.readBytes(sessionId, path, {}, signal)` | Read a file. |
-| `ctx.remote.workspaceFiles.list(sessionId, path, signal)` | List the workspace tree (root `'.'`). |
-| `ctx.remote.terminal.create/attach/close` | Save a file. |
-| `ctx.sidebarRight.mounted` | The on-screen session (for `list`/`readBytes`/save). |
+| `ctx.remote.workspaceFiles.readBytes(sessionId, path, {}, signal)` | Read a file (absolute or workspace-relative). |
+| `ctx.remote.terminal.create/attach/close` | List folders (shell `ls`) and save files. |
+| `ctx.sidebarRight.mounted` | The on-screen session (fallback: `useSessions`). |
 | `ctx.locale.register` / slot `locale` | Localized labels + `t`. |
 
 ## Service `inject`
@@ -86,7 +85,10 @@ inject: ['slots', 'locale', 'remote', 'remote.workspaceFiles', 'remote.terminal'
 ## Constraints and their implications
 
 - **No client file-write Remote** → save runs through a short-lived terminal.
+- **No client API lists files in arbitrary folders** → the file explorer uses a
+  persistent terminal shell (`ls -1p`).
+- **Terminal `attach` streams are single-consumer** → one persistent iterator
+  per shell.
 - **Static bundle module table** → only `require('react')`; no Harness imports.
 - **PTY 4096-byte line limit** → save chunks base64.
-- **No focus-change observable** → 500 ms poll for file selection.
 - **Remote results never throw** → every call checks `result.ok`.

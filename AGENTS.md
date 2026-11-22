@@ -7,9 +7,9 @@
 
 **Corpora Editor** is a DeepSeek Harness (DSH) plugin that adds a **Corpora**
 panel to the left sidebar (beside Plugins and Automation tasks) for editing and
-previewing text-encoded files. It has its own file tree in the panel's right
-bar (browse the workspace, then edit/preview a selected file), with Edit/Preview
-modes, a file-type label, and save-to-disk.
+previewing text-encoded files. It has a free file explorer in the panel's right
+bar (browse any folder via a terminal shell), with Edit/Preview modes, a
+file-type label, and save-to-disk.
 
 ## Critical DSH constraints (do not re-learn these the hard way)
 
@@ -57,7 +57,7 @@ These facts cost a lot of investigation to establish and are easy to get wrong:
 | `locale/*.json` | Display metadata (`meta.title` / `meta.description`). |
 | `docs/ARCHITECTURE.md` | Components, data flow, extension points. |
 | `docs/DEVELOPMENT.md` | Setup, debug loop, extension recipes. |
-| `docs/REQUIREMENTS.md` | Requirements, constraints, roadmap. |
+| `docs/requirements/REQ-0.md` | Baseline requirements; `REQ-N.md` files here are the change log / feature proposals. |
 | `docs/WIKI.md` | FAQ, troubleshooting, glossary. |
 
 ## Extension cheatsheet

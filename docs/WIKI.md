@@ -47,9 +47,10 @@ silently succeeding.
 - **Host half** — `index.js`, runs in the Node host process (empty here).
 - **Client half / browser half** — `client.js`, runs in the Web page.
 - **Remote** — DSH's typed Host↔Client RPC (`ctx.remote.<namespace>`).
-- **Slot** — a named extension point (`conversation.view`, …) a plugin renders into.
-- **`conversation.view`** — the list slot that defines the top-bar view tabs.
+- **Slot** — a named extension point (`sidebar.panellist`, `main`, …) a plugin renders into.
+- **`sidebar.panellist`** — the left-sidebar panel list (icon + label); each id addresses the matching `main` panel.
+- **`main`** — the root-scoped central panel slot (keyed by panel id).
 - **`workspaceFiles`** — read-only Remote for file reads/listing/search/change feed.
-- **`terminal`** — Remote for creating/attaching terminals (used here to write files).
-- **`sidebarRight`** — service exposing the right sidebar's active tab / open tabs.
+- **`terminal`** — Remote for creating/attaching terminals (used here to list folders and write files).
+- **`sidebarRight`** — service exposing the on-screen session (`mounted`) and active tab.
 - **`FILE_TYPES`** — this plugin's renderer registry.

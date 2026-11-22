@@ -31,10 +31,10 @@ only rebuilds while the dev watcher runs).
 
 ## Manual test checklist
 
-1. Open the right sidebar → **Files**, browse to a `.md` or `.txt` file, open it.
-2. Switch the conversation to the **Corpora** tab — the file should load.
+1. Click **Corpora** in the left sidebar.
+2. In the right bar, use `↑`/`⌂` and folder rows to navigate; pick a text file.
 3. Toggle **Edit**, change text, toggle **Preview** — the preview reflects edits.
-4. Change the **file type** dropdown — the renderer changes.
+4. The **file-type label** shows the auto-detected renderer.
 5. Click **Save** — a brief terminal appears, then disappears; re-read the file
    to confirm the change persisted.
 6. Error paths: an unwritable file should show a save error, not a silent no-op.
@@ -58,7 +58,7 @@ only rebuilds while the dev watcher runs).
    },
    ```
 
-2. That's it — the dropdown lists it automatically, detection is automatic, and
+2. That's it — detection is automatic (shown as the file-type label), and
    save/edit work unchanged.
 
 ### Renderer contract
