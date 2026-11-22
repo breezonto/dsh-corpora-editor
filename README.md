@@ -5,6 +5,14 @@ VSCode-style editor for **text-encoded files**. It adds a **Corpora** view
 beside Chat and Trajectory where you can edit a file and switch between an
 **Edit** mode and a **Preview** mode.
 
+## Documentation
+
+- [`AGENTS.md`](AGENTS.md) — shared context for AI agents (read this first).
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — components, data flow, extension points.
+- [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) — install, debug loop, extension recipes.
+- [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md) — requirements, constraints, roadmap.
+- [`docs/WIKI.md`](docs/WIKI.md) — FAQ, troubleshooting, glossary.
+
 ## Features
 
 - **Edit / Preview modes** — toggle between a plain text editor and a rendered
