@@ -1,10 +1,13 @@
-/* Corpora Editor — edit and preview text-encoded files in the chat session.
+/* Corpora Editor — edit and preview text-encoded files (and preview PDFs) in
+ * the chat session.
  *
- * A "Corpora" conversation view (top bar) that edits the text file currently
- * open in the right sidebar's built-in "Files" tab. Two modes — Edit and
- * Preview — switch through a toggle, and a file-type dropdown selects the
- * Preview renderer. File types are a small extensible registry so JSON, XML,
- * CSV etc. can be added later without touching the editor shell.
+ * A "Corpora" conversation view (top bar) that edits the file selected in the
+ * panel's built-in file tree. Two modes — Edit and Preview — switch through a
+ * toggle, and a file-type label shows the detected renderer. File types are a
+ * small extensible registry so JSON, XML, CSV etc. can be added later without
+ * touching the editor shell. Binary types (PDF) set `binary: true`: the view
+ * renders them from the raw bytes (a Blob URL in an <iframe>) and disables
+ * Edit/Save.
  *
  * Reads go through the `workspaceFiles` Remote namespace; saves go through the
  * terminal controller (the only client-accessible write path). Nothing here
@@ -32,7 +35,8 @@ window.__ModuleLoader__.load({
       '.ce-controls{display:flex;align-items:center;gap:8px;flex:none;}',
       '.ce-mode-toggle{display:inline-flex;border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);overflow:hidden;}',
       '.ce-mode-btn{border:none;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:20px;padding:2px 10px;cursor:pointer;}',
-      '.ce-mode-btn:hover{background:var(--dsw-alias-interactive-bg-hover);}',
+      '.ce-mode-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);}',
+      '.ce-mode-btn:disabled{opacity:0.5;cursor:default;}',
       '.ce-mode-active{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);}',
       '.ce-type-label{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:20px;padding:2px 8px;white-space:nowrap;}',
       '.ce-save{border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:20px;padding:2px 12px;cursor:pointer;}',
@@ -82,6 +86,9 @@ window.__ModuleLoader__.load({
       '.ce-table th{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-weight:600;position:sticky;top:0;}',
       '.ce-table tbody tr:nth-child(even){background:var(--dsw-alias-bg-layer-1);}',
       '.ce-table tbody tr:hover{background:var(--dsw-alias-interactive-bg-hover);}',
+      // ---- PDF preview ----
+      '.ce-pdf-view{flex:1;min-height:0;box-sizing:border-box;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1);}',
+      '.ce-pdf{flex:1;min-height:0;width:100%;border:none;display:block;background:#fff;}',
       // ---- Editor + file-tree layout ----
       '.ce-main{display:flex;flex:1;min-height:0;}',
       '.ce-content{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0;}',
@@ -447,6 +454,14 @@ window.__ModuleLoader__.load({
         render: (text) => renderXML(text),
       },
       {
+        id: 'pdf',
+        label: 'PDF',
+        match: (name) => /\.pdf$/i.test(name),
+        // Binary file: no text renderer. The view renders it via a Blob URL in
+        // an <iframe> (the browser's built-in viewer) and disables Edit/Save.
+        binary: true,
+      },
+      {
         id: 'text',
         label: 'Plain text',
         match: () => true,
@@ -642,30 +657,54 @@ window.__ModuleLoader__.load({
                     : null)));
     }
 
-    // ---- Read one text file; returns { status, text, absolutePath } ----
+    // ---- Read one file's bytes; returns { status, text, data, absolutePath } ----
+    // `text` is the UTF-8 decode (used by text renderers); `data` is the raw
+    // byte buffer (used by binary renderers such as the PDF preview).
     function useFileText(sessionId, path) {
-      const [state, setState] = React.useState({ status: 'idle', text: '', absolutePath: null });
+      const [state, setState] = React.useState({ status: 'idle', text: '', data: null, absolutePath: null });
       React.useEffect(() => {
         if (path == null || remote == null) {
-          setState({ status: 'idle', text: '', absolutePath: null });
+          setState({ status: 'idle', text: '', data: null, absolutePath: null });
           return undefined;
         }
         let cancelled = false;
         const controller = new AbortController();
-        setState({ status: 'loading', text: '', absolutePath: null });
+        setState({ status: 'loading', text: '', data: null, absolutePath: null });
         remote.workspaceFiles.readBytes(sessionId, path, {}, controller.signal)
           .then((result) => {
             if (cancelled) return;
-            if (!result.ok) { setState({ status: 'error', text: '', absolutePath: null }); return; }
+            if (!result.ok) { setState({ status: 'error', text: '', data: null, absolutePath: null }); return; }
+            const data = result.value.data;
             let text = '';
-            try { text = new TextDecoder('utf-8', { fatal: false }).decode(result.value.data); }
-            catch { setState({ status: 'error', text: '', absolutePath: null }); return; }
-            setState({ status: 'ready', text, absolutePath: result.value.absolutePath });
+            try { text = new TextDecoder('utf-8', { fatal: false }).decode(data); }
+            catch { setState({ status: 'error', text: '', data: null, absolutePath: null }); return; }
+            setState({ status: 'ready', text, data, absolutePath: result.value.absolutePath });
           })
-          .catch(() => { if (!cancelled) setState({ status: 'error', text: '', absolutePath: null }); });
+          .catch(() => { if (!cancelled) setState({ status: 'error', text: '', data: null, absolutePath: null }); });
         return () => { cancelled = true; controller.abort(); };
       }, [sessionId, path]);
       return state;
+    }
+
+    // ---- Blob URL for the browser's built-in PDF viewer ----
+    function usePdfObjectUrl(data, isPdf) {
+      const [url, setUrl] = React.useState(null);
+      React.useEffect(() => {
+        if (!isPdf || data == null) {
+          setUrl(null);
+          return undefined;
+        }
+        let objectUrl = null;
+        try {
+          objectUrl = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
+        } catch {
+          setUrl(null);
+          return undefined;
+        }
+        setUrl(objectUrl);
+        return () => { URL.revokeObjectURL(objectUrl); };
+      }, [data, isPdf]);
+      return url;
     }
 
     // ---- Save via the terminal controller (client-accessible write) ----
@@ -769,13 +808,25 @@ window.__ModuleLoader__.load({
       const fileKeyRef = React.useRef(null);
 
       const selectedName = selectedPath == null ? null : basename(selectedPath);
+      const detectedType = selectedName == null ? null : detectFileType(selectedName);
+      const isPdf = detectedType != null && detectedType.binary === true;
+      const pdfUrl = usePdfObjectUrl(fileText.data, isPdf);
 
       React.useEffect(() => {
         fileKeyRef.current = fileText.status === 'ready' ? fileText.absolutePath : null;
         if (selectedPath != null && fileText.status === 'ready') {
-          setDraft(fileText.text);
-          setSavedText(fileText.text);
-          setTypeId(detectFileType(selectedName).id);
+          const type = detectFileType(selectedName);
+          setTypeId(type.id);
+          if (type.binary === true) {
+            // Binary files (PDF) are preview-only: no editable draft and the
+            // mode is forced back to Preview.
+            setDraft(null);
+            setSavedText(null);
+            setMode('preview');
+          } else {
+            setDraft(fileText.text);
+            setSavedText(fileText.text);
+          }
         } else {
           setDraft(null);
           setSavedText(null);
@@ -806,6 +857,11 @@ window.__ModuleLoader__.load({
         body = h('div', { className: 'ce-status' }, t('view.loading'));
       } else if (fileText.status === 'error') {
         body = h('div', { className: 'ce-status ce-status-error' }, t('view.error'));
+      } else if (isPdf) {
+        body = pdfUrl == null
+          ? h('div', { className: 'ce-status' }, t('view.loading'))
+          : h('div', { className: 'ce-pdf-view' },
+              h('iframe', { className: 'ce-pdf', src: pdfUrl, title: selectedName, 'aria-label': selectedName }));
       } else if (mode === 'edit') {
         body = h('textarea', {
           className: 'ce-editor', value: draft ?? '', spellCheck: false,
@@ -828,10 +884,10 @@ window.__ModuleLoader__.load({
           h('div', { className: 'ce-title' }, selectedName == null ? t('view.title') : selectedName),
           h('div', { className: 'ce-controls' },
             h('div', { className: 'ce-mode-toggle', role: 'tablist' },
-              h('button', { type: 'button', role: 'tab', 'aria-selected': mode === 'edit', className: 'ce-mode-btn' + (mode === 'edit' ? ' ce-mode-active' : ''), onClick: () => { setMode('edit'); } }, t('mode.edit')),
+              h('button', { type: 'button', role: 'tab', disabled: isPdf, title: isPdf ? t('mode.editDisabled') : undefined, 'aria-selected': mode === 'edit', className: 'ce-mode-btn' + (mode === 'edit' ? ' ce-mode-active' : ''), onClick: () => { setMode('edit'); } }, t('mode.edit')),
               h('button', { type: 'button', role: 'tab', 'aria-selected': mode === 'preview', className: 'ce-mode-btn' + (mode === 'preview' ? ' ce-mode-active' : ''), onClick: () => { setMode('preview'); } }, t('mode.preview'))),
             h('span', { className: 'ce-type-label', title: fileType.label }, fileType.label),
-            h('button', { type: 'button', className: 'ce-save', disabled: !dirty || saving, onClick: onSave }, saving ? t('save.saving') : t('save.label')))),
+            h('button', { type: 'button', className: 'ce-save', disabled: isPdf || !dirty || saving, onClick: onSave }, saving ? t('save.saving') : t('save.label')))),
         saveError == null ? null : h('div', { className: 'ce-save-error' }, saveError),
         h('div', { className: 'ce-main' },
           h('div', { className: 'ce-content' }, body),
@@ -880,6 +936,7 @@ window.__ModuleLoader__.load({
             'view.truncated': 'Some entries are hidden.',
             'mode.edit': 'Edit',
             'mode.preview': 'Preview',
+            'mode.editDisabled': 'PDF files are preview-only.',
             'type.label': 'File type',
             'save.label': 'Save',
             'save.saving': 'Saving…',
@@ -895,6 +952,7 @@ window.__ModuleLoader__.load({
             'view.truncated': 'Algunas entradas están ocultas.',
             'mode.edit': 'Editar',
             'mode.preview': 'Vista previa',
+            'mode.editDisabled': 'Los PDF solo admiten vista previa.',
             'type.label': 'Tipo de archivo',
             'save.label': 'Guardar',
             'save.saving': 'Guardando…',
@@ -910,6 +968,7 @@ window.__ModuleLoader__.load({
             'view.truncated': '部分条目已隐藏。',
             'mode.edit': '编辑',
             'mode.preview': '预览',
+            'mode.editDisabled': 'PDF 文件仅支持预览。',
             'type.label': '文件类型',
             'save.label': '保存',
             'save.saving': '保存中…',
@@ -925,6 +984,7 @@ window.__ModuleLoader__.load({
             'view.truncated': '一部のエントリは非表示です。',
             'mode.edit': '編集',
             'mode.preview': 'プレビュー',
+            'mode.editDisabled': 'PDF はプレビューのみです。',
             'type.label': 'ファイルの種類',
             'save.label': '保存',
             'save.saving': '保存中…',
@@ -940,6 +1000,7 @@ window.__ModuleLoader__.load({
             'view.truncated': 'Certaines entrées sont masquées.',
             'mode.edit': 'Modifier',
             'mode.preview': 'Aperçu',
+            'mode.editDisabled': 'Les PDF sont en lecture seule.',
             'type.label': 'Type de fichier',
             'save.label': 'Enregistrer',
             'save.saving': 'Enregistrement…',
@@ -955,6 +1016,7 @@ window.__ModuleLoader__.load({
             'view.truncated': 'Einige Einträge sind ausgeblendet.',
             'mode.edit': 'Bearbeiten',
             'mode.preview': 'Vorschau',
+            'mode.editDisabled': 'PDF-Dateien sind nur zur Vorschau verfügbar.',
             'type.label': 'Dateityp',
             'save.label': 'Speichern',
             'save.saving': 'Wird gespeichert…',
@@ -970,6 +1032,7 @@ window.__ModuleLoader__.load({
             'view.truncated': 'Некоторые записи скрыты.',
             'mode.edit': 'Правка',
             'mode.preview': 'Предпросмотр',
+            'mode.editDisabled': 'PDF-файлы доступны только для просмотра.',
             'type.label': 'Тип файла',
             'save.label': 'Сохранить',
             'save.saving': 'Сохранение…',
@@ -985,6 +1048,7 @@ window.__ModuleLoader__.load({
             'view.truncated': 'Algumas entradas estão ocultas.',
             'mode.edit': 'Editar',
             'mode.preview': 'Pré-visualizar',
+            'mode.editDisabled': 'Arquivos PDF são somente visualização.',
             'type.label': 'Tipo de arquivo',
             'save.label': 'Salvar',
             'save.saving': 'Salvando…',

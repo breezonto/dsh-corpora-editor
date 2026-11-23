@@ -15,6 +15,7 @@ browser (client.js)                      Host process
 │   ├─ useCurrentSession      │          └───────────────────────────────┘
 │   ├─ FileTree (shell ls)    │
 │   ├─ useFileText            │
+│   ├─ usePdfObjectUrl (PDF)  │
 │   └─ saveFile               │
 └─────────────────────────────┘
 ```
@@ -22,7 +23,8 @@ browser (client.js)                      Host process
 ## Components (all in `client.js`)
 
 1. **`FILE_TYPES` registry** — the extension point for renderers. Each entry:
-   `{ id, label, match(name), render(text) }`. `detectFileType(name)` picks the
+   `{ id, label, match(name) }`, plus `render(text)` for text types or
+   `binary: true` for binary types (PDF). `detectFileType(name)` picks the
    first matching entry; the UI shows the detected type as a label.
 2. **`useCurrentSession()`** — reads the on-screen Session via
    `ctx.sidebarRight.mounted`, with a `useSessions` fallback to the first listed
@@ -33,28 +35,37 @@ browser (client.js)                      Host process
    navigation; clicking a file calls `onSelect(absolutePath)`.
 4. **`useFileText(sessionId, path)`** — reads a file's bytes via
    `remote.workspaceFiles.readBytes`, decodes UTF-8, and returns
-   `{ status, text, absolutePath }`. `absolutePath` is the value used on save
-   (robust against cwd differences).
-5. **`saveFile(sessionId, absolutePath, content)`** — writes via the terminal
+   `{ status, text, data, absolutePath }`. `text` feeds text renderers; `data`
+   (the raw byte buffer) feeds the binary PDF preview. `absolutePath` is the
+   value used on save (robust against cwd differences).
+5. **`usePdfObjectUrl(data, isPdf)`** — for a PDF, wraps the raw bytes in a
+   `Blob('application/pdf')` and returns a `URL.createObjectURL` handle (an
+   `<iframe>` loads it into the browser's built-in viewer). The effect revokes
+   the URL when the file changes or the component unmounts.
+6. **`saveFile(sessionId, absolutePath, content)`** — writes via the terminal
    controller. Content is base64-encoded and chunked (PTY line limit), piped
    into `base64 -d > <path>`, and a trailing sentinel carries the exit status so
-   failures are detected.
-6. **`CorporaPage`** — the React component registered into the root-scoped
+   failures are detected. Never called for binary (PDF) files.
+7. **`CorporaPage`** — the React component registered into the root-scoped
    `main` slot (key `corpora`), addressed by the `sidebar.panellist` entry.
    Owns editor state (`draft`, `savedText`, `mode`, `typeId`, `saving`,
    `saveError`) and renders the header (title, mode toggle, file-type label,
-   Save button) and the body (textarea or rendered preview).
+   Save button) and the body (textarea, rendered text preview, or PDF iframe).
+   When the detected type is binary, it forces Preview mode and disables the
+   Edit and Save buttons.
 
 ## Data flow
 
 ```
 FileTree: click a file (absolute path)
    └─▶ CorporaPage sets selectedPath
-        └─▶ useFileText readBytes  →  { text, absolutePath }
-             └─▶ CorporaPage draft = text
-                  ├─ Edit:    <textarea> edits draft
-                  ├─ Preview: FILE_TYPES[typeId].render(draft)
-                  └─ Save:    saveFile(absolutePath, draft) via terminal
+        └─▶ useFileText readBytes  →  { text, data, absolutePath }
+             ├─ binary (PDF): usePdfObjectUrl(data) → <iframe src=blobUrl>
+             │                Edit/Save disabled, mode forced to Preview
+             └─ text:        CorporaPage draft = text
+                              ├─ Edit:    <textarea> edits draft
+                              ├─ Preview: FILE_TYPES[typeId].render(draft)
+                              └─ Save:    saveFile(absolutePath, draft) via terminal
 ```
 
 ## DSH APIs used
@@ -76,7 +87,11 @@ inject: ['slots', 'locale', 'remote', 'remote.workspaceFiles', 'remote.terminal'
 
 ## Extension points
 
-- **New file type:** add a `FILE_TYPES` entry. No other code changes.
+- **New text file type:** add a `FILE_TYPES` entry with a `render(text)`. No
+  other code changes.
+- **New binary file type:** add a `FILE_TYPES` entry with `binary: true`, then
+  add a branch in `CorporaPage`'s body (like the PDF branch) that renders from
+  `fileText.data`; Edit/Save disable for free via the `binary` flag.
 - **New toolbar control:** edit the `ce-controls` block in `CorporaPage`.
 - **New mode:** add a value to `mode` state and a branch in the body render.
 - **Better save:** replace `saveFile`'s terminal backend (or add a proper write

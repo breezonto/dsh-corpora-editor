@@ -14,8 +14,9 @@ Files tree itself, a plan, subagents…), the view shows the empty hint.
 
 **Does it work with non-Markdown files?**
 Yes — any UTF-8 text file loads in Edit mode. Preview uses the selected
-renderer: Markdown for `.md`/`.markdown`, "Plain text" (monospace) otherwise.
-The file-type dropdown overrides auto-detection.
+renderer: Markdown for `.md`/`.markdown`, JSON/CSV/XML for those extensions,
+"Plain text" (monospace) otherwise. `.pdf` files open as a read-only preview in
+the browser's built-in viewer, with Edit and Save disabled.
 
 **Is saving safe?**
 The save writes via `base64 -d` and reports the command's exit status, so a
@@ -28,6 +29,9 @@ silently succeeding.
 - Files over ~32 MiB are refused by the read endpoint (`maxFileBytes`).
 - Unsaved edits are discarded when you switch to a different file.
 - The editor is a plain textarea (no syntax highlighting yet).
+- PDFs are preview-only: there is no PDF text editing or save, and the preview
+  relies on the browser's built-in PDF viewer (a browser without one shows a
+  blank frame).
 - Focus-only tab switches in the sidebar are detected by a 500 ms poll (no
   public observable exists for them).
 
@@ -53,4 +57,8 @@ silently succeeding.
 - **`workspaceFiles`** — read-only Remote for file reads/listing/search/change feed.
 - **`terminal`** — Remote for creating/attaching terminals (used here to list folders and write files).
 - **`sidebarRight`** — service exposing the on-screen session (`mounted`) and active tab.
-- **`FILE_TYPES`** — this plugin's renderer registry.
+- **`FILE_TYPES`** — this plugin's renderer registry; text entries carry a
+  `render(text)`, binary entries (PDF) set `binary: true` and are rendered by
+  the view from raw bytes.
+- **`binary`** — a `FILE_TYPES` flag marking a non-text file; it forces Preview
+  mode and disables Edit/Save.

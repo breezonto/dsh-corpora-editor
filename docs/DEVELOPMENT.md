@@ -37,7 +37,9 @@ only rebuilds while the dev watcher runs).
 4. The **file-type label** shows the auto-detected renderer.
 5. Click **Save** — a brief terminal appears, then disappears; re-read the file
    to confirm the change persisted.
-6. Error paths: an unwritable file should show a save error, not a silent no-op.
+6. Pick a `.pdf` file: the PDF renders in the browser's viewer, the file-type
+   label reads **PDF**, and the **Edit** and **Save** buttons are disabled.
+7. Error paths: an unwritable file should show a save error, not a silent no-op.
 
 ## Adding a file type (JSON / XML / CSV)
 
@@ -64,11 +66,25 @@ only rebuilds while the dev watcher runs).
 ### Renderer contract
 
 - `match(name)` → boolean, used for auto-detection.
-- `render(text)` → React element(s), called only in Preview mode and wrapped in
-  a try/catch by the view (a throwing renderer degrades to an error message,
-  not a crashed slot).
+- Text type: `render(text)` → React element(s), called only in Preview mode and
+  wrapped in a try/catch by the view (a throwing renderer degrades to an error
+  message, not a crashed slot).
+- Binary type: `binary: true` and **no** `render`. The view renders it from the
+  raw bytes (`fileText.data`) and disables Edit/Save. The PDF entry is the
+  reference implementation (a `Blob` → `URL.createObjectURL` → `<iframe>`).
 - Renderers must use `React.createElement` (no JSX) and the theme tokens
   (`var(--dsw-alias-*)`).
+
+### Adding a binary file type (PDF)
+
+Binary previews need the raw bytes, not decoded text:
+
+1. Add a `FILE_TYPES` entry with `binary: true` (and no `render`).
+2. In `CorporaPage`, add a body branch for that type (mirror the PDF branch),
+   reading from `fileText.data` and producing a `Blob` URL via a small hook like
+   `usePdfObjectUrl`.
+3. Edit/Save are disabled automatically: the `binary` flag forces Preview mode
+   and disables the Edit and Save buttons.
 
 ## Coding rules
 

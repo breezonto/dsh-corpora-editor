@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Corpora-Editor",
-    "description": "Bearbeiten und Vorschauen von Textdateien (Markdown, Klartext, später JSON/XML/CSV) in einer Konversationsansicht, mit Bearbeiten-/Vorschau-Modus und Speichern auf die Festplatte."
+    "description": "Textdateien (Markdown, JSON, CSV, XML, Klartext) bearbeiten und in der Vorschau anzeigen sowie PDFs anzeigen – in einer Konversationsansicht, mit Bearbeiten-/Vorschau-Modus und Speichern auf die Festplatte."
   }
 }

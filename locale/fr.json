@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Éditeur Corpora",
-    "description": "Modifiez et prévisualisez des fichiers texte (Markdown, texte brut, puis JSON/XML/CSV) dans une vue de conversation, avec modes Modifier/Aperçu et enregistrement sur disque."
+    "description": "Modifiez et prévisualisez des fichiers texte (Markdown, JSON, CSV, XML, texte brut) et prévisualisez des PDF dans une vue de conversation, avec modes Modifier/Aperçu et enregistrement sur disque."
   }
 }

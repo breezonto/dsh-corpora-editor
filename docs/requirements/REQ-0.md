@@ -15,13 +15,16 @@
 | 4 | Auto-detected file-type label (Markdown, JSON, CSV, XML, plain text) with syntax highlighting; renderers are an extensible registry. | ✅ |
 | 5 | Save edits to disk (terminal write, base64-chunked, exit-status checked). | ✅ |
 | 6 | Docs in `docs/` plus this `requirements/` folder. | ✅ |
+| 7 | Read-only PDF preview: `.pdf` files render in the browser's built-in viewer; Edit and Save are disabled for them. | ✅ |
 
 ## Non-functional requirements
 
 - **Security:** no `dangerouslySetInnerHTML`; link/image URLs restricted to
   `http(s)://`, `mailto:`, `#`, and root-relative paths.
-- **Extensibility:** a new renderer is one `FILE_TYPES` entry; the editor shell,
-  mode switch, and save path are decoupled from renderers.
+- **Extensibility:** a new text renderer is one `FILE_TYPES` entry (`render`);
+  a new binary type is a `binary: true` entry plus a view branch (PDF is the
+  reference). The editor shell, mode switch, and save path are decoupled from
+  renderers.
 - **Localization:** 8 locales for runtime strings and display metadata
   (en, es, zh, ja, fr, de, ru, pt).
 - **Robustness:** Remote calls check `result.ok`; save verifies exit status;
@@ -44,7 +47,8 @@
 
 ## Roadmap (not implemented)
 
-- More renderers (YAML, TOML, TSV) — one `FILE_TYPES` entry each.
+- More renderers (YAML, TOML, TSV, and more binary types such as images) — one
+  `FILE_TYPES` entry each (text) or a `binary: true` entry plus a view branch.
 - A true Markdown editor (live split preview) instead of the plain textarea.
 - Replace the terminal-based read/write with a proper Host Remote (needs build tooling).
 - Unsaved-changes confirmation when switching files.
