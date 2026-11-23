@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Edit and preview text-encoded files, and preview PDFs, in the chat session.",
+  "description": "Edit and preview text-encoded files, and preview PDFs and images, in the chat session.",
   "license": "MIT",
   "keywords": [
     "deepseek-harness",
@@ -12,7 +12,8 @@
     "editor",
     "markdown",
     "text-editor",
-    "pdf"
+    "pdf",
+    "image"
   ],
   "exports": {
     ".": "./index.js",

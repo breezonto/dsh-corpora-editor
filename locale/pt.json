@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Editor Corpora",
-    "description": "Edite e visualize arquivos de texto (Markdown, JSON, CSV, XML, texto simples) e visualize PDFs em uma visão de conversa, com modos Editar/Visualizar e salvamento em disco."
+    "description": "Edite e visualize arquivos de texto (Markdown, JSON, CSV, XML, texto simples) e visualize PDFs e imagens em uma visão de conversa, com modos Editar/Visualizar e salvamento em disco."
   }
 }

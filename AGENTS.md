@@ -7,10 +7,11 @@
 
 **Corpora Editor** is a DeepSeek Harness (DSH) plugin that adds a **Corpora**
 panel to the left sidebar (beside Plugins and Automation tasks) for editing and
-previewing text-encoded files, plus a read-only preview for PDF files. It has a
-free file explorer in the panel's right bar (browse any folder via a terminal
-shell), with Edit/Preview modes, a file-type label, and save-to-disk (PDFs are
-preview-only).
+previewing text-encoded files, plus a read-only preview for PDF and image
+files. It has a free file explorer in the panel's right bar (browse any folder
+via a terminal shell), with Edit/Preview modes, a file-type label, and
+save-to-disk (PDFs and images are preview-only); the file tree remembers the
+last directory you browsed (browser `localStorage`) across view re-entry.
 
 ## Critical DSH constraints (do not re-learn these the hard way)
 
@@ -66,10 +67,12 @@ These facts cost a lot of investigation to establish and are easy to get wrong:
 - **Add a text file type (JSON/XML/CSV):** add one entry to `FILE_TYPES` in
   `client.js` (`{ id, label, match(name), render(text) }`). The editor shell,
   mode switch, and save logic need no changes.
-- **Add a binary file type (PDF):** add a `FILE_TYPES` entry with
-  `{ id, label, match(name), binary: true }` (no `render`) and a view branch in
-  `CorporaPage` that renders from `fileText.data` (see the PDF branch); the
-  `binary` flag forces Preview mode and disables Edit/Save automatically.
+- **Add a binary file type (PDF / images):** add a `FILE_TYPES` entry with
+  `{ id, label, match(name), binary: true, kind }` (no `render`), extend
+  `binaryMimeFor` with its MIME, and (for new kinds) a view branch in
+  `CorporaPage` that renders from `fileText.data` via `useObjectUrl` (see the
+  PDF and image branches); the `binary` flag forces Preview mode and disables
+  Edit/Save automatically.
 - **Add a toolbar action / mode:** edit `CorporaPage`'s header (`ce-controls`)
   and its state. Keep state as React `useState`/`useRef`; the module already
   holds `remote` and `sidebarRight` service references set in `apply`.

@@ -33,13 +33,18 @@ only rebuilds while the dev watcher runs).
 
 1. Click **Corpora** in the left sidebar.
 2. In the right bar, use `↑`/`⌂` and folder rows to navigate; pick a text file.
-3. Toggle **Edit**, change text, toggle **Preview** — the preview reflects edits.
-4. The **file-type label** shows the auto-detected renderer.
-5. Click **Save** — a brief terminal appears, then disappears; re-read the file
+3. Navigate into a subfolder, leave the Corpora view (open another panel), then
+   return — the tree resumes in that subfolder, not the home directory.
+4. Toggle **Edit**, change text, toggle **Preview** — the preview reflects edits.
+5. The **file-type label** shows the auto-detected renderer.
+6. Click **Save** — a brief terminal appears, then disappears; re-read the file
    to confirm the change persisted.
-6. Pick a `.pdf` file: the PDF renders in the browser's viewer, the file-type
+7. Pick a `.pdf` file: the PDF renders in the browser's viewer, the file-type
    label reads **PDF**, and the **Edit** and **Save** buttons are disabled.
-7. Error paths: an unwritable file should show a save error, not a silent no-op.
+8. Pick a raster image (`.png`, `.jpg`, …): the image renders inline, the
+   file-type label reads **Image**, and the **Edit** and **Save** buttons are
+   disabled.
+9. Error paths: an unwritable file should show a save error, not a silent no-op.
 
 ## Adding a file type (JSON / XML / CSV)
 
@@ -69,21 +74,24 @@ only rebuilds while the dev watcher runs).
 - Text type: `render(text)` → React element(s), called only in Preview mode and
   wrapped in a try/catch by the view (a throwing renderer degrades to an error
   message, not a crashed slot).
-- Binary type: `binary: true` and **no** `render`. The view renders it from the
-  raw bytes (`fileText.data`) and disables Edit/Save. The PDF entry is the
-  reference implementation (a `Blob` → `URL.createObjectURL` → `<iframe>`).
+- Binary type: `binary: true` + `kind` and **no** `render`. The view renders it
+  from the raw bytes (`fileText.data`) and disables Edit/Save. The PDF (`kind:
+  'pdf'` → `<iframe>`) and image (`kind: 'image'` → `<img>`) entries are the
+  reference implementations (a `Blob` → `URL.createObjectURL`).
 - Renderers must use `React.createElement` (no JSX) and the theme tokens
   (`var(--dsw-alias-*)`).
 
-### Adding a binary file type (PDF)
+### Adding a binary file type (PDF / images)
 
 Binary previews need the raw bytes, not decoded text:
 
-1. Add a `FILE_TYPES` entry with `binary: true` (and no `render`).
-2. In `CorporaPage`, add a body branch for that type (mirror the PDF branch),
-   reading from `fileText.data` and producing a `Blob` URL via a small hook like
-   `usePdfObjectUrl`.
-3. Edit/Save are disabled automatically: the `binary` flag forces Preview mode
+1. Add a `FILE_TYPES` entry with `binary: true` and a `kind` (and no `render`).
+2. Extend `binaryMimeFor(type, name)` in `client.js` to return that kind's MIME
+   type.
+3. If the kind isn't `pdf` or `image`, add a body branch in `CorporaPage`
+   (mirror the PDF/image branch) that renders from `fileText.data` via
+   `useObjectUrl(data, mime)`.
+4. Edit/Save are disabled automatically: the `binary` flag forces Preview mode
    and disables the Edit and Save buttons.
 
 ## Coding rules
